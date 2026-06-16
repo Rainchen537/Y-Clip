@@ -21,47 +21,61 @@ final class ClipboardHistoryPanel: NSPanel {
     }
 }
 
-/// 菜单尺寸档位（小/中/大），驱动面板宽度、行高、字号、缩略图大小。
-enum MenuSize: String, Codable, CaseIterable {
-    case small, medium, large
+/// 历史弹窗显示参数：大小负责等比例缩放内容，宽度/长度只改变容器尺寸。
+struct HistoryPanelMetrics: Codable, Equatable {
+    static let `default` = HistoryPanelMetrics(scale: 1.0, width: 360, visibleRows: 4)
+    static let scaleRange: ClosedRange<Double> = 0.80...1.35
+    static let widthRange: ClosedRange<Double> = 280...560
+    static let visibleRowsRange: ClosedRange<Double> = 3...10
 
-    static let `default` = MenuSize.medium
+    let scale: CGFloat
+    let width: CGFloat
+    let visibleRows: CGFloat
 
-    var displayName: String {
-        switch self {
-        case .small: return "小"
-        case .medium: return "中"
-        case .large: return "大"
-        }
+    init(scale: CGFloat, width: CGFloat, visibleRows: CGFloat) {
+        self.scale = CGFloat(Self.clamp(Double(scale), to: Self.scaleRange))
+        self.width = CGFloat(Self.clamp(Double(width), to: Self.widthRange))
+        self.visibleRows = CGFloat(Self.clamp(Double(visibleRows), to: Self.visibleRowsRange))
     }
 
     var panelWidth: CGFloat {
-        switch self {
-        case .small: return 300
-        case .medium: return 360
-        case .large: return 430
-        }
+        width
     }
 
     var rowHeight: CGFloat {
-        switch self {
-        case .small: return 62
-        case .medium: return 76
-        case .large: return 92
-        }
+        76 * scale
     }
 
     var fontSize: CGFloat {
-        switch self {
-        case .small: return 12
-        case .medium: return 13
-        case .large: return 15
-        }
+        13 * scale
     }
 
-    /// 缩略图正方形边长（略小于行高，留出上下边距）。
+    var headerFontSize: CGFloat {
+        14 * scale
+    }
+
+    var hintFontSize: CGFloat {
+        11 * scale
+    }
+
+    var rowSpacing: CGFloat {
+        6 * scale
+    }
+
+    var contentInset: CGFloat {
+        12 * scale
+    }
+
     var thumbSide: CGFloat {
-        rowHeight - 20
+        rowHeight - 20 * scale
+    }
+
+    var headerHeight: CGFloat {
+        58 * scale
+    }
+
+    static func clamp(_ value: Double, to range: ClosedRange<Double>) -> Double {
+        min(max(value, range.lowerBound), range.upperBound)
     }
 }
 
@@ -95,7 +109,7 @@ final class HistoryRowView: NSView {
     init(
         item: ClipboardItem,
         thumbnail: NSImage?,
-        metrics: MenuSize,
+        metrics: HistoryPanelMetrics,
         onChoose: @escaping () -> Void
     ) {
         self.onChoose = onChoose
@@ -111,7 +125,7 @@ final class HistoryRowView: NSView {
             thumbView.image = thumbnail
             thumbView.imageScaling = .scaleProportionallyUpOrDown
             thumbView.wantsLayer = true
-            thumbView.layer?.cornerRadius = 5
+            thumbView.layer?.cornerRadius = 5 * metrics.scale
             thumbView.layer?.masksToBounds = true
             thumbView.layer?.borderWidth = 1
             thumbView.layer?.borderColor = NSColor.separatorColor.cgColor
@@ -128,12 +142,12 @@ final class HistoryRowView: NSView {
 
             let side = metrics.thumbSide
             NSLayoutConstraint.activate([
-                thumbView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+                thumbView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: metrics.contentInset),
                 thumbView.centerYAnchor.constraint(equalTo: centerYAnchor),
                 thumbView.widthAnchor.constraint(equalToConstant: side),
                 thumbView.heightAnchor.constraint(equalToConstant: side),
-                titleLabel.leadingAnchor.constraint(equalTo: thumbView.trailingAnchor, constant: 10),
-                titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+                titleLabel.leadingAnchor.constraint(equalTo: thumbView.trailingAnchor, constant: 10 * metrics.scale),
+                titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -metrics.contentInset),
                 titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
             ])
         } else {
@@ -151,11 +165,11 @@ final class HistoryRowView: NSView {
             titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
             NSLayoutConstraint.activate([
-                titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-                titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+                titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: metrics.contentInset),
+                titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -metrics.contentInset),
                 titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-                titleLabel.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 10),
-                titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -10)
+                titleLabel.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 10 * metrics.scale),
+                titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -10 * metrics.scale)
             ])
         }
 
@@ -214,6 +228,7 @@ final class ClipboardPanelController {
     private let stackView = NSStackView()
     private let headerLabel = NSTextField(labelWithString: "剪贴板历史")
     private let hintLabel = NSTextField(labelWithString: "↑↓ 选择 · Enter 粘贴 · Esc 关闭")
+    private let settingsButton = NSButton()
     private var rowViews: [HistoryRowView] = []
     private var items: [ClipboardItem] = []
     private var selectedIndex = 0
@@ -221,9 +236,10 @@ final class ClipboardPanelController {
     private var onClose: (() -> Void)?
     private var outsideClickMonitor: Any?
     private var scrollObserver: Any?
-    private var metrics: MenuSize = .default
+    private var metrics: HistoryPanelMetrics = .default
     /// 由外部注入：给定图片项，返回其全图文件 URL（用于生成缩略图）。
     var imageURLProvider: ((ImagePayload) -> URL)?
+    var onOpenSettings: ((NSView) -> Void)?
 
     init() {
         panel = ClipboardHistoryPanel(
@@ -253,13 +269,23 @@ final class ClipboardPanelController {
         headerStack.alignment = .leading
         headerStack.translatesAutoresizingMaskIntoConstraints = false
 
-        headerLabel.font = .systemFont(ofSize: 14, weight: .semibold)
-        hintLabel.font = .systemFont(ofSize: 11)
+        headerLabel.font = .systemFont(ofSize: metrics.headerFontSize, weight: .semibold)
+        hintLabel.font = .systemFont(ofSize: metrics.hintFontSize)
         hintLabel.textColor = .secondaryLabelColor
         hintLabel.lineBreakMode = .byTruncatingTail
 
+        settingsButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "设置")
+        settingsButton.bezelStyle = .regularSquare
+        settingsButton.isBordered = false
+        settingsButton.imagePosition = .imageOnly
+        settingsButton.contentTintColor = .secondaryLabelColor
+        settingsButton.target = self
+        settingsButton.action = #selector(openSettings)
+        settingsButton.toolTip = "打开设置"
+        settingsButton.translatesAutoresizingMaskIntoConstraints = false
+
         stackView.orientation = .vertical
-        stackView.spacing = 6
+        stackView.spacing = metrics.rowSpacing
         stackView.alignment = .leading
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -271,13 +297,19 @@ final class ClipboardPanelController {
         scrollView.contentView.postsBoundsChangedNotifications = true
 
         rootView.addSubview(headerStack)
+        rootView.addSubview(settingsButton)
         rootView.addSubview(scrollView)
         panel.contentView = rootView
 
         NSLayoutConstraint.activate([
             headerStack.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 12),
             headerStack.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 14),
-            headerStack.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -14),
+            headerStack.trailingAnchor.constraint(lessThanOrEqualTo: settingsButton.leadingAnchor, constant: -10),
+
+            settingsButton.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -10),
+            settingsButton.centerYAnchor.constraint(equalTo: headerStack.centerYAnchor),
+            settingsButton.widthAnchor.constraint(equalToConstant: 26),
+            settingsButton.heightAnchor.constraint(equalToConstant: 26),
 
             scrollView.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 10),
             scrollView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 8),
@@ -297,17 +329,18 @@ final class ClipboardPanelController {
 
     func show(
         items: [ClipboardItem],
-        menuSize: MenuSize,
+        metrics: HistoryPanelMetrics,
         near point: NSPoint,
         onChoose: @escaping (ClipboardItem) -> Void,
         onClose: @escaping () -> Void
     ) {
         self.items = items
-        self.metrics = menuSize
+        self.metrics = metrics
         self.onChoose = onChoose
         self.onClose = onClose
         selectedIndex = items.isEmpty ? -1 : 0
 
+        updateMetrics()
         renderRows()
 
         let panelSize = fittedPanelSize(for: items.count, near: point)
@@ -316,6 +349,17 @@ final class ClipboardPanelController {
         panel.makeKeyAndOrderFront(nil)
         beginOutsideClickMonitoring()
         beginHoverTracking()
+    }
+
+    @objc private func openSettings() {
+        endOutsideClickMonitoring()
+        onOpenSettings?(settingsButton)
+    }
+
+    private func updateMetrics() {
+        headerLabel.font = .systemFont(ofSize: metrics.headerFontSize, weight: .semibold)
+        hintLabel.font = .systemFont(ofSize: metrics.hintFontSize)
+        stackView.spacing = metrics.rowSpacing
     }
 
     func close() {
@@ -504,8 +548,8 @@ final class ClipboardPanelController {
         let width = metrics.panelWidth
         let headerHeight: CGFloat = 58
         let rowHeight = metrics.rowHeight
-        let rowSpacing: CGFloat = 6
-        let emptyHeight: CGFloat = 96
+        let rowSpacing = metrics.rowSpacing
+        let emptyHeight: CGFloat = 96 * metrics.scale
         let screen = screen(containing: point)
         let maxHeight = max(260, min(560, screen.visibleFrame.height - 24))
 
@@ -513,8 +557,9 @@ final class ClipboardPanelController {
             return NSSize(width: width, height: headerHeight + emptyHeight)
         }
 
-        let contentHeight = CGFloat(itemCount) * rowHeight
-            + CGFloat(max(0, itemCount - 1)) * rowSpacing
+        let visibleCount = min(CGFloat(itemCount), metrics.visibleRows)
+        let contentHeight = visibleCount * rowHeight
+            + max(0, visibleCount - 1) * rowSpacing
         let height = min(headerHeight + contentHeight + 12, maxHeight)
         return NSSize(width: width, height: height)
     }

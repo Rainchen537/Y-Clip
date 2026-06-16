@@ -5,6 +5,10 @@ final class SettingsStore {
         static let hotKey = "hotKey"
         static let menuSize = "menuSize"
         static let maxHistoryItems = "maxHistoryItems"
+        static let panelScale = "panelScale"
+        static let panelWidth = "panelWidth"
+        static let panelVisibleRows = "panelVisibleRows"
+        static let autoUpdateEnabled = "autoUpdateEnabled"
     }
 
     static let defaultMaxHistoryItems = 50
@@ -32,19 +36,22 @@ final class SettingsStore {
         }
     }
 
-    var menuSize: MenuSize {
+    var panelMetrics: HistoryPanelMetrics {
         get {
-            guard
-                let raw = defaults.string(forKey: Keys.menuSize),
-                let size = MenuSize(rawValue: raw)
-            else {
-                return .default
-            }
-
-            return size
+            let fallbackScale = migratedScaleFromMenuSize()
+            let scale = storedDouble(forKey: Keys.panelScale) ?? fallbackScale
+            let width = storedDouble(forKey: Keys.panelWidth) ?? Double(HistoryPanelMetrics.default.width)
+            let rows = storedDouble(forKey: Keys.panelVisibleRows) ?? Double(HistoryPanelMetrics.default.visibleRows)
+            return HistoryPanelMetrics(
+                scale: CGFloat(scale),
+                width: CGFloat(width),
+                visibleRows: CGFloat(rows)
+            )
         }
         set {
-            defaults.set(newValue.rawValue, forKey: Keys.menuSize)
+            defaults.set(Double(newValue.scale), forKey: Keys.panelScale)
+            defaults.set(Double(newValue.width), forKey: Keys.panelWidth)
+            defaults.set(Double(newValue.visibleRows), forKey: Keys.panelVisibleRows)
         }
     }
 
@@ -62,7 +69,39 @@ final class SettingsStore {
         }
     }
 
+    var autoUpdateEnabled: Bool {
+        get {
+            guard defaults.object(forKey: Keys.autoUpdateEnabled) != nil else {
+                return true
+            }
+
+            return defaults.bool(forKey: Keys.autoUpdateEnabled)
+        }
+        set {
+            defaults.set(newValue, forKey: Keys.autoUpdateEnabled)
+        }
+    }
+
     static func clampedHistoryLimit(_ value: Int) -> Int {
         min(max(value, allowedHistoryRange.lowerBound), allowedHistoryRange.upperBound)
+    }
+
+    private func storedDouble(forKey key: String) -> Double? {
+        guard defaults.object(forKey: key) != nil else {
+            return nil
+        }
+
+        return defaults.double(forKey: key)
+    }
+
+    private func migratedScaleFromMenuSize() -> Double {
+        switch defaults.string(forKey: Keys.menuSize) {
+        case "small":
+            return 0.86
+        case "large":
+            return 1.18
+        default:
+            return Double(HistoryPanelMetrics.default.scale)
+        }
     }
 }

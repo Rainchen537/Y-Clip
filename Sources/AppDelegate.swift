@@ -3,6 +3,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settingsStore = SettingsStore()
     private lazy var historyStore = ClipboardHistoryStore(maxItems: settingsStore.maxHistoryItems)
+    private let softwareUpdateController = SoftwareUpdateController()
     private let panelController = ClipboardPanelController()
     private var hotKeyController: HotKeyController?
     private var settingsPopoverController: SettingsPopoverController?
@@ -16,10 +17,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         historyStore.startMonitoring()
         setupSettingsPopover()
         registerHotKey(settingsStore.hotKey)
+        scheduleAutomaticUpdateCheckIfNeeded()
 
         // 让面板能根据图片项找到磁盘上的全图，用于生成缩略图。
         panelController.imageURLProvider = { [weak self] payload in
             self?.historyStore.imageURL(for: payload) ?? URL(fileURLWithPath: "/dev/null")
+        }
+        panelController.onOpenSettings = { [weak self] sourceView in
+            self?.showSettingsPopover(relativeTo: sourceView, preferredEdge: .maxX)
         }
     }
 
@@ -43,8 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupSettingsPopover() {
         settingsPopoverController = SettingsPopoverController(
             hotKey: settingsStore.hotKey,
-            menuSize: settingsStore.menuSize,
+            panelMetrics: settingsStore.panelMetrics,
             maxHistoryItems: settingsStore.maxHistoryItems,
+            autoUpdateEnabled: settingsStore.autoUpdateEnabled,
             launchAtLoginEnabled: LaunchAtLoginController.isEnabled,
             onShowHistory: { [weak self] in
                 self?.settingsPopoverController?.close()
@@ -59,14 +65,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onHotKeyChange: { [weak self] hotKey in
                 self?.setHotKey(hotKey)
             },
-            onMenuSizeChange: { [weak self] size in
-                self?.settingsStore.menuSize = size
+            onPanelMetricsChange: { [weak self] metrics in
+                self?.settingsStore.panelMetrics = metrics
             },
             onMaxHistoryItemsChange: { [weak self] count in
                 self?.setMaxHistoryItems(count)
             },
+            onAutoUpdateChange: { [weak self] enabled in
+                self?.settingsStore.autoUpdateEnabled = enabled
+            },
+            onCheckForUpdates: { [weak self] in
+                self?.softwareUpdateController.checkForUpdates(userInitiated: true)
+            },
             onOpenAccessibility: {
                 AccessibilityPermission.openSettings()
+            },
+            onOpenGitHub: {
+                if let url = URL(string: "https://github.com/Rainchen537/global-clipboard") {
+                    NSWorkspace.shared.open(url)
+                }
             },
             onQuit: {
                 NSApp.terminate(nil)
@@ -75,14 +92,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleSettingsPopover() {
-        guard let button = statusItem?.button, let settingsPopoverController else {
+        guard let button = statusItem?.button else {
+            return
+        }
+
+        showSettingsPopover(relativeTo: button, preferredEdge: .minY)
+    }
+
+    private func showSettingsPopover(relativeTo view: NSView, preferredEdge: NSRectEdge) {
+        guard let settingsPopoverController else {
             return
         }
 
         if settingsPopoverController.isShown {
             settingsPopoverController.close()
         } else {
-            settingsPopoverController.show(relativeTo: button)
+            settingsPopoverController.show(relativeTo: view, preferredEdge: preferredEdge)
         }
     }
 
@@ -142,13 +167,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsPopoverController?.updateMaxHistoryItems(clamped)
     }
 
+    private func scheduleAutomaticUpdateCheckIfNeeded() {
+        guard settingsStore.autoUpdateEnabled else {
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            self?.softwareUpdateController.checkForUpdates(userInitiated: false)
+        }
+    }
+
     private func showClipboardHistory() {
         focusContext = FocusContextReader.current()
         let anchorPoint = usableAnchorPoint(focusContext?.caretPoint)
 
         panelController.show(
             items: historyStore.items,
-            menuSize: settingsStore.menuSize,
+            metrics: settingsStore.panelMetrics,
             near: anchorPoint,
             onChoose: { [weak self] item in
                 self?.paste(item)
