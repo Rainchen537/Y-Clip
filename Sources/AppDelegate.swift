@@ -16,6 +16,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         historyStore.startMonitoring()
         setupSettingsPopover()
         registerHotKey(settingsStore.hotKey)
+
+        // 让面板能根据图片项找到磁盘上的全图，用于生成缩略图。
+        panelController.imageURLProvider = { [weak self] payload in
+            self?.historyStore.imageURL(for: payload) ?? URL(fileURLWithPath: "/dev/null")
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -38,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupSettingsPopover() {
         settingsPopoverController = SettingsPopoverController(
             hotKey: settingsStore.hotKey,
+            menuSize: settingsStore.menuSize,
             launchAtLoginEnabled: LaunchAtLoginController.isEnabled,
             onShowHistory: { [weak self] in
                 self?.settingsPopoverController?.close()
@@ -51,6 +57,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onHotKeyChange: { [weak self] hotKey in
                 self?.setHotKey(hotKey)
+            },
+            onMenuSizeChange: { [weak self] size in
+                self?.settingsStore.menuSize = size
             },
             onOpenAccessibility: {
                 AccessibilityPermission.openSettings()
@@ -128,6 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         panelController.show(
             items: historyStore.items,
+            menuSize: settingsStore.menuSize,
             near: anchorPoint,
             onChoose: { [weak self] item in
                 self?.paste(item)

@@ -7,28 +7,32 @@ final class SettingsPopoverController: NSObject, NSPopoverDelegate {
 
     init(
         hotKey: HotKey,
+        menuSize: MenuSize,
         launchAtLoginEnabled: Bool,
         onShowHistory: @escaping () -> Void,
         onClearHistory: @escaping () -> Void,
         onLaunchAtLoginChange: @escaping (Bool) -> Void,
         onHotKeyChange: @escaping (HotKey) -> Void,
+        onMenuSizeChange: @escaping (MenuSize) -> Void,
         onOpenAccessibility: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         settingsViewController = SettingsViewController(
             hotKey: hotKey,
+            menuSize: menuSize,
             launchAtLoginEnabled: launchAtLoginEnabled,
             onShowHistory: onShowHistory,
             onClearHistory: onClearHistory,
             onLaunchAtLoginChange: onLaunchAtLoginChange,
             onHotKeyChange: onHotKeyChange,
+            onMenuSizeChange: onMenuSizeChange,
             onOpenAccessibility: onOpenAccessibility,
             onQuit: onQuit
         )
 
         super.init()
 
-        popover.contentSize = NSSize(width: 320, height: 300)
+        popover.contentSize = NSSize(width: 320, height: 340)
         popover.behavior = .transient
         popover.animates = true
         popover.contentViewController = settingsViewController
@@ -52,6 +56,10 @@ final class SettingsPopoverController: NSObject, NSPopoverDelegate {
         settingsViewController.updateHotKey(hotKey)
     }
 
+    func updateMenuSize(_ size: MenuSize) {
+        settingsViewController.updateMenuSize(size)
+    }
+
     func updateLaunchAtLogin(_ enabled: Bool) {
         settingsViewController.updateLaunchAtLogin(enabled)
     }
@@ -65,30 +73,37 @@ final class SettingsViewController: NSViewController {
     private let shortcutButton = NSButton(title: "", target: nil, action: nil)
     private let launchAtLoginButton = NSButton(checkboxWithTitle: "开机自启动", target: nil, action: nil)
     private let recordingHintLabel = NSTextField(labelWithString: "")
+    private let menuSizeControl = NSSegmentedControl()
     private var localKeyMonitor: Any?
     private var currentHotKey: HotKey
+    private var currentMenuSize: MenuSize
     private let onShowHistory: () -> Void
     private let onClearHistory: () -> Void
     private let onLaunchAtLoginChange: (Bool) -> Void
     private let onHotKeyChange: (HotKey) -> Void
+    private let onMenuSizeChange: (MenuSize) -> Void
     private let onOpenAccessibility: () -> Void
     private let onQuit: () -> Void
 
     init(
         hotKey: HotKey,
+        menuSize: MenuSize,
         launchAtLoginEnabled: Bool,
         onShowHistory: @escaping () -> Void,
         onClearHistory: @escaping () -> Void,
         onLaunchAtLoginChange: @escaping (Bool) -> Void,
         onHotKeyChange: @escaping (HotKey) -> Void,
+        onMenuSizeChange: @escaping (MenuSize) -> Void,
         onOpenAccessibility: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         currentHotKey = hotKey
+        currentMenuSize = menuSize
         self.onShowHistory = onShowHistory
         self.onClearHistory = onClearHistory
         self.onLaunchAtLoginChange = onLaunchAtLoginChange
         self.onHotKeyChange = onHotKeyChange
+        self.onMenuSizeChange = onMenuSizeChange
         self.onOpenAccessibility = onOpenAccessibility
         self.onQuit = onQuit
 
@@ -132,6 +147,26 @@ final class SettingsViewController: NSViewController {
         shortcutStack.distribution = .gravityAreas
         shortcutStack.spacing = 12
 
+        let menuSizeTitleLabel = NSTextField(labelWithString: "菜单大小")
+        menuSizeTitleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+
+        menuSizeControl.segmentStyle = .rounded
+        menuSizeControl.trackingMode = .selectOne
+        menuSizeControl.segmentCount = MenuSize.allCases.count
+        for (index, size) in MenuSize.allCases.enumerated() {
+            menuSizeControl.setLabel(size.displayName, forSegment: index)
+            menuSizeControl.setWidth(40, forSegment: index)
+        }
+        menuSizeControl.target = self
+        menuSizeControl.action = #selector(changeMenuSize)
+        updateMenuSize(currentMenuSize)
+
+        let menuSizeStack = NSStackView(views: [menuSizeTitleLabel, menuSizeControl])
+        menuSizeStack.orientation = .horizontal
+        menuSizeStack.alignment = .centerY
+        menuSizeStack.distribution = .gravityAreas
+        menuSizeStack.spacing = 12
+
         let showHistoryButton = makeCommandButton(title: "显示历史", symbolName: "list.bullet.clipboard")
         showHistoryButton.target = self
         showHistoryButton.action = #selector(showHistory)
@@ -165,6 +200,7 @@ final class SettingsViewController: NSViewController {
             launchAtLoginButton,
             shortcutStack,
             recordingHintLabel,
+            menuSizeStack,
             separator(),
             commandGrid
         ])
@@ -183,6 +219,7 @@ final class SettingsViewController: NSViewController {
 
             shortcutStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
             shortcutButton.widthAnchor.constraint(equalToConstant: 122),
+            menuSizeStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
             commandGrid.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
     }
@@ -191,6 +228,13 @@ final class SettingsViewController: NSViewController {
         currentHotKey = hotKey
         shortcutButton.title = hotKey.displayName
         recordingHintLabel.stringValue = " "
+    }
+
+    func updateMenuSize(_ size: MenuSize) {
+        currentMenuSize = size
+        if let index = MenuSize.allCases.firstIndex(of: size) {
+            menuSizeControl.selectedSegment = index
+        }
     }
 
     func updateLaunchAtLogin(_ enabled: Bool) {
@@ -209,6 +253,14 @@ final class SettingsViewController: NSViewController {
 
     @objc private func toggleLaunchAtLogin() {
         onLaunchAtLoginChange(launchAtLoginButton.state == .on)
+    }
+
+    @objc private func changeMenuSize() {
+        let index = menuSizeControl.selectedSegment
+        guard MenuSize.allCases.indices.contains(index) else { return }
+        let size = MenuSize.allCases[index]
+        currentMenuSize = size
+        onMenuSizeChange(size)
     }
 
     @objc private func startRecording() {

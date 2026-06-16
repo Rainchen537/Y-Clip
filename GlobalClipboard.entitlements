@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      全局剪切板 — hardened runtime entitlements
+
+      本 app 的能力全部依赖「辅助功能」运行时授权，无需在此声明：
+        · 自动粘贴：CGEvent 键盘事件注入（PasteController）
+        · 全局热键：Carbon RegisterEventHotKey（HotKeyController）
+        · 事件监听：NSEvent 全局 monitor（ClipboardPanelController）
+        · 开机自启：SMAppService（LaunchAtLoginController）
+
+      不使用 App Sandbox；无网络访问；不加载第三方动态库。
+      因此保持最小集即可，不启用任何削弱 hardened runtime 的项，
+      以获得最顺畅的公证（notarization）结果。
+    -->
+</dict>
+</plist>

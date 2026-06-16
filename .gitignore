@@ -1,0 +1,17 @@
+# 构建产物
+build/
+dist/
+
+# 图标/打包脚本的中间产物（保留源 .swift 与脚本，忽略编译出的可执行文件与 PNG/icns 中间件）
+icon/icongen
+icon/dmgbggen
+icon/previewgen
+icon/herogen
+icon/AppIcon.iconset/
+icon/dmg_preview.png
+
+# macOS
+.DS_Store
+
+# 本地公证/签名临时文件
+*.zip

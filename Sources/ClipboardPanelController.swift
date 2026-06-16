@@ -21,11 +21,67 @@ final class ClipboardHistoryPanel: NSPanel {
     }
 }
 
+/// 菜单尺寸档位（小/中/大），驱动面板宽度、行高、字号、缩略图大小。
+enum MenuSize: String, Codable, CaseIterable {
+    case small, medium, large
+
+    static let `default` = MenuSize.medium
+
+    var displayName: String {
+        switch self {
+        case .small: return "小"
+        case .medium: return "中"
+        case .large: return "大"
+        }
+    }
+
+    var panelWidth: CGFloat {
+        switch self {
+        case .small: return 300
+        case .medium: return 360
+        case .large: return 430
+        }
+    }
+
+    var rowHeight: CGFloat {
+        switch self {
+        case .small: return 62
+        case .medium: return 76
+        case .large: return 92
+        }
+    }
+
+    var fontSize: CGFloat {
+        switch self {
+        case .small: return 12
+        case .medium: return 13
+        case .large: return 15
+        }
+    }
+
+    /// 缩略图正方形边长（略小于行高，留出上下边距）。
+    var thumbSide: CGFloat {
+        rowHeight - 20
+    }
+}
+
 final class HistoryRowView: NSView {
     private let titleLabel = NSTextField(labelWithString: "")
+    private let thumbView = NSImageView()
     private let onChoose: () -> Void
     private var trackingAreaRef: NSTrackingArea?
-    private var isHovering = false
+
+    /// 鼠标进入/离开本行时回调，由 controller 按真实鼠标位置统一重算 hover，
+    /// 避免滚动时 enter/exit 不配对导致多行同时高亮。
+    var onHoverProbe: (() -> Void)?
+
+    var isHovering = false {
+        didSet {
+            if oldValue != isHovering {
+                updateAppearance()
+            }
+        }
+    }
 
     var isSelected = false {
         didSet {
@@ -33,35 +89,75 @@ final class HistoryRowView: NSView {
         }
     }
 
-    init(item: ClipboardItem, onChoose: @escaping () -> Void) {
+    /// - Parameters:
+    ///   - thumbnail: 图片项的缩略图（文本项传 nil）。
+    ///   - metrics: 当前菜单尺寸档位。
+    init(
+        item: ClipboardItem,
+        thumbnail: NSImage?,
+        metrics: MenuSize,
+        onChoose: @escaping () -> Void
+    ) {
         self.onChoose = onChoose
         super.init(frame: .zero)
 
         wantsLayer = true
-        layer?.cornerRadius = 7
+        layer?.cornerRadius = 8
 
-        titleLabel.stringValue = item.previewText
-        titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.maximumNumberOfLines = 3
-        titleLabel.textColor = .labelColor
-        titleLabel.usesSingleLineMode = false
-        titleLabel.cell?.wraps = true
-        titleLabel.cell?.isScrollable = false
-        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        heightAnchor.constraint(equalToConstant: metrics.rowHeight).isActive = true
 
-        addSubview(titleLabel)
+        if let thumbnail {
+            // 图片项：固定尺寸缩略图 + 右侧尺寸说明，块高度与文本项一致。
+            thumbView.image = thumbnail
+            thumbView.imageScaling = .scaleProportionallyUpOrDown
+            thumbView.wantsLayer = true
+            thumbView.layer?.cornerRadius = 5
+            thumbView.layer?.masksToBounds = true
+            thumbView.layer?.borderWidth = 1
+            thumbView.layer?.borderColor = NSColor.separatorColor.cgColor
+            thumbView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(thumbView)
 
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+            titleLabel.stringValue = item.previewText
+            titleLabel.font = .systemFont(ofSize: metrics.fontSize, weight: .medium)
+            titleLabel.textColor = .secondaryLabelColor
+            titleLabel.lineBreakMode = .byTruncatingTail
+            titleLabel.maximumNumberOfLines = 1
+            addSubview(titleLabel)
+            titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 76),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleLabel.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 10),
-            titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -10)
-        ])
+            let side = metrics.thumbSide
+            NSLayoutConstraint.activate([
+                thumbView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+                thumbView.centerYAnchor.constraint(equalTo: centerYAnchor),
+                thumbView.widthAnchor.constraint(equalToConstant: side),
+                thumbView.heightAnchor.constraint(equalToConstant: side),
+                titleLabel.leadingAnchor.constraint(equalTo: thumbView.trailingAnchor, constant: 10),
+                titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+                titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+            ])
+        } else {
+            // 文本项：最多三行预览。
+            titleLabel.stringValue = item.previewText
+            titleLabel.font = .systemFont(ofSize: metrics.fontSize, weight: .medium)
+            titleLabel.lineBreakMode = .byTruncatingTail
+            titleLabel.maximumNumberOfLines = 3
+            titleLabel.textColor = .labelColor
+            titleLabel.usesSingleLineMode = false
+            titleLabel.cell?.wraps = true
+            titleLabel.cell?.isScrollable = false
+            titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            addSubview(titleLabel)
+            titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+            NSLayoutConstraint.activate([
+                titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+                titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+                titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+                titleLabel.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 10),
+                titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -10)
+            ])
+        }
 
         updateAppearance()
     }
@@ -88,13 +184,11 @@ final class HistoryRowView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        isHovering = true
-        updateAppearance()
+        onHoverProbe?()
     }
 
     override func mouseExited(with event: NSEvent) {
-        isHovering = false
-        updateAppearance()
+        onHoverProbe?()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -103,11 +197,12 @@ final class HistoryRowView: NSView {
 
     private func updateAppearance() {
         if isSelected {
-            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.20).cgColor
+            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
         } else if isHovering {
-            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
+            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.10).cgColor
         } else {
-            layer?.backgroundColor = NSColor.clear.cgColor
+            // 常驻一层极淡底色，让每个块自成一面，靠面与间距区分，无需分割线。
+            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.04).cgColor
         }
     }
 }
@@ -125,6 +220,10 @@ final class ClipboardPanelController {
     private var onChoose: ((ClipboardItem) -> Void)?
     private var onClose: (() -> Void)?
     private var outsideClickMonitor: Any?
+    private var scrollObserver: Any?
+    private var metrics: MenuSize = .default
+    /// 由外部注入：给定图片项，返回其全图文件 URL（用于生成缩略图）。
+    var imageURLProvider: ((ImagePayload) -> URL)?
 
     init() {
         panel = ClipboardHistoryPanel(
@@ -160,7 +259,7 @@ final class ClipboardPanelController {
         hintLabel.lineBreakMode = .byTruncatingTail
 
         stackView.orientation = .vertical
-        stackView.spacing = 4
+        stackView.spacing = 6
         stackView.alignment = .leading
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -169,6 +268,7 @@ final class ClipboardPanelController {
         scrollView.borderType = .noBorder
         scrollView.documentView = stackView
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.contentView.postsBoundsChangedNotifications = true
 
         rootView.addSubview(headerStack)
         rootView.addSubview(scrollView)
@@ -197,11 +297,13 @@ final class ClipboardPanelController {
 
     func show(
         items: [ClipboardItem],
+        menuSize: MenuSize,
         near point: NSPoint,
         onChoose: @escaping (ClipboardItem) -> Void,
         onClose: @escaping () -> Void
     ) {
         self.items = items
+        self.metrics = menuSize
         self.onChoose = onChoose
         self.onClose = onClose
         selectedIndex = items.isEmpty ? -1 : 0
@@ -213,10 +315,12 @@ final class ClipboardPanelController {
 
         panel.makeKeyAndOrderFront(nil)
         beginOutsideClickMonitoring()
+        beginHoverTracking()
     }
 
     func close() {
         endOutsideClickMonitoring()
+        endHoverTracking()
         panel.orderOut(nil)
         onClose?()
     }
@@ -241,6 +345,49 @@ final class ClipboardPanelController {
         outsideClickMonitor = nil
     }
 
+    private func beginHoverTracking() {
+        endHoverTracking()
+
+        // 滚动时鼠标位置不变、不会触发 row 的 enter/exit，
+        // 因此用 clip view 的 bounds 变化兜底，按真实鼠标位置重算唯一 hover。
+        scrollObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updateHover()
+        }
+    }
+
+    private func endHoverTracking() {
+        if let scrollObserver {
+            NotificationCenter.default.removeObserver(scrollObserver)
+        }
+        scrollObserver = nil
+
+        rowViews.forEach { $0.isHovering = false }
+    }
+
+    private func updateHover() {
+        guard panel.isVisible else {
+            return
+        }
+
+        let mouseInWindow = panel.mouseLocationOutsideOfEventStream
+        let clip = scrollView.contentView
+        let pointInClip = clip.convert(mouseInWindow, from: nil)
+        let insideContent = clip.bounds.contains(pointInClip)
+
+        for row in rowViews {
+            if insideContent {
+                let pointInRow = row.convert(mouseInWindow, from: nil)
+                row.isHovering = row.bounds.contains(pointInRow)
+            } else {
+                row.isHovering = false
+            }
+        }
+    }
+
     private func closeIfClickOutside() {
         guard panel.isVisible, !panel.frame.contains(NSEvent.mouseLocation) else {
             return
@@ -257,25 +404,54 @@ final class ClipboardPanelController {
         }
 
         if items.isEmpty {
-            let emptyLabel = NSTextField(labelWithString: "复制一些文字后再按 ⌥⌘V")
-            emptyLabel.font = .systemFont(ofSize: 13)
+            let emptyLabel = NSTextField(labelWithString: "复制一些文字或图片后再打开")
+            emptyLabel.font = .systemFont(ofSize: metrics.fontSize)
             emptyLabel.textColor = .secondaryLabelColor
             emptyLabel.alignment = .center
             stackView.addArrangedSubview(emptyLabel)
             emptyLabel.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
-            emptyLabel.heightAnchor.constraint(equalToConstant: 76).isActive = true
+            emptyLabel.heightAnchor.constraint(equalToConstant: metrics.rowHeight).isActive = true
             return
         }
 
         for (index, item) in items.enumerated() {
-            let row = HistoryRowView(item: item) { [weak self] in
+            let thumbnail = thumbnail(for: item)
+            let row = HistoryRowView(item: item, thumbnail: thumbnail, metrics: metrics) { [weak self] in
                 self?.chooseItem(at: index)
+            }
+            row.onHoverProbe = { [weak self] in
+                self?.updateHover()
             }
             row.isSelected = index == selectedIndex
             rowViews.append(row)
             stackView.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
         }
+    }
+
+    /// 为图片项生成（缩放后的）缩略图；文本项返回 nil。
+    private func thumbnail(for item: ClipboardItem) -> NSImage? {
+        guard let payload = item.image, let url = imageURLProvider?(payload) else {
+            return nil
+        }
+        guard let image = NSImage(contentsOf: url) else {
+            return nil
+        }
+        // 直接交给 NSImageView 按比例缩放显示，这里只做尺寸标注以便内存友好。
+        let side = metrics.thumbSide * 2  // @2x，保证高清
+        let target = NSImage(size: NSSize(width: side, height: side))
+        target.lockFocus()
+        NSColor.clear.set()
+        let rect = NSRect(x: 0, y: 0, width: side, height: side)
+        rect.fill()
+        // 等比缩放并居中（aspect fit）
+        let imgSize = image.size
+        let scale = min(side / imgSize.width, side / imgSize.height)
+        let drawSize = NSSize(width: imgSize.width * scale, height: imgSize.height * scale)
+        let origin = NSPoint(x: (side - drawSize.width) / 2, y: (side - drawSize.height) / 2)
+        image.draw(in: NSRect(origin: origin, size: drawSize))
+        target.unlockFocus()
+        return target
     }
 
     private func updateSelection() {
@@ -319,23 +495,27 @@ final class ClipboardPanelController {
 
         let item = items[index]
         endOutsideClickMonitoring()
+        endHoverTracking()
         panel.orderOut(nil)
         onChoose?(item)
     }
 
     private func fittedPanelSize(for itemCount: Int, near point: NSPoint) -> NSSize {
-        let width: CGFloat = 360
+        let width = metrics.panelWidth
         let headerHeight: CGFloat = 58
-        let rowHeight: CGFloat = 80
+        let rowHeight = metrics.rowHeight
+        let rowSpacing: CGFloat = 6
         let emptyHeight: CGFloat = 96
         let screen = screen(containing: point)
-        let maxHeight = max(260, min(500, screen.visibleFrame.height - 24))
+        let maxHeight = max(260, min(560, screen.visibleFrame.height - 24))
 
         if itemCount == 0 {
             return NSSize(width: width, height: headerHeight + emptyHeight)
         }
 
-        let height = min(headerHeight + CGFloat(itemCount) * rowHeight + 12, maxHeight)
+        let contentHeight = CGFloat(itemCount) * rowHeight
+            + CGFloat(max(0, itemCount - 1)) * rowSpacing
+        let height = min(headerHeight + contentHeight + 12, maxHeight)
         return NSSize(width: width, height: height)
     }
 
