@@ -14,10 +14,27 @@ DIST_DIR="$ROOT_DIR/dist"
 DMG_FINAL="$DIST_DIR/$VOL_NAME.dmg"
 DMG_TMP="$DIST_DIR/.tmp_$VOL_NAME.dmg"
 STAGE_DIR="$DIST_DIR/.stage"
+WINDOW_LEFT=200
+WINDOW_TOP=150
+WINDOW_WIDTH=640
+WINDOW_HEIGHT=400
+WINDOW_RIGHT=$((WINDOW_LEFT + WINDOW_WIDTH))
+WINDOW_BOTTOM=$((WINDOW_TOP + WINDOW_HEIGHT))
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "找不到 app：$APP_PATH —— 请先执行 ./build.sh" >&2
   exit 1
+fi
+
+if [[ ! -f "$BG_SRC" ]]; then
+  xcrun swift "$ROOT_DIR/icon/DmgBgGen.swift" "$BG_SRC"
+else
+  BG_WIDTH="$(sips -g pixelWidth "$BG_SRC" 2>/dev/null | awk '/pixelWidth/ { print $2; exit }')"
+  BG_HEIGHT="$(sips -g pixelHeight "$BG_SRC" 2>/dev/null | awk '/pixelHeight/ { print $2; exit }')"
+  if [[ "$BG_WIDTH" != "$WINDOW_WIDTH" || "$BG_HEIGHT" != "$WINDOW_HEIGHT" ]]; then
+    echo "背景图尺寸为 ${BG_WIDTH}×${BG_HEIGHT}，重新生成 ${WINDOW_WIDTH}×${WINDOW_HEIGHT}…" >&2
+    xcrun swift "$ROOT_DIR/icon/DmgBgGen.swift" "$BG_SRC"
+  fi
 fi
 
 rm -rf "$DIST_DIR"
@@ -49,17 +66,19 @@ sleep 2
 # 4) 用 Finder/AppleScript 设置窗口外观与图标布局
 # 失败不致命：无 GUI 会话或未授权控制 Finder 时，跳过美化仍能产出可用 DMG。
 osascript <<EOF || echo "（提示：Finder 布局设置被跳过，DMG 仍可正常使用）"
+set bgFile to POSIX file "$MOUNT_DIR/.background/bg.png" as alias
 tell application "Finder"
   tell disk "$VOL_NAME"
     open
+    delay 1
     set current view of container window to icon view
     set toolbar visible of container window to false
     set statusbar visible of container window to false
-    set the bounds of container window to {200, 150, 840, 550}
+    set the bounds of container window to {$WINDOW_LEFT, $WINDOW_TOP, $WINDOW_RIGHT, $WINDOW_BOTTOM}
     set theViewOptions to the icon view options of container window
     set arrangement of theViewOptions to not arranged
     set icon size of theViewOptions to 128
-    set background picture of theViewOptions to file ".background:bg.png"
+    set background picture of theViewOptions to bgFile
     set position of item "$APP_NAME.app" of container window to {165, 200}
     set position of item "Applications" of container window to {475, 200}
     set position of item ".background" of container window to {900, 900}

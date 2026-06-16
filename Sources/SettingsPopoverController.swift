@@ -8,31 +8,35 @@ final class SettingsPopoverController: NSObject, NSPopoverDelegate {
     init(
         hotKey: HotKey,
         menuSize: MenuSize,
+        maxHistoryItems: Int,
         launchAtLoginEnabled: Bool,
         onShowHistory: @escaping () -> Void,
         onClearHistory: @escaping () -> Void,
         onLaunchAtLoginChange: @escaping (Bool) -> Void,
         onHotKeyChange: @escaping (HotKey) -> Void,
         onMenuSizeChange: @escaping (MenuSize) -> Void,
+        onMaxHistoryItemsChange: @escaping (Int) -> Void,
         onOpenAccessibility: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         settingsViewController = SettingsViewController(
             hotKey: hotKey,
             menuSize: menuSize,
+            maxHistoryItems: maxHistoryItems,
             launchAtLoginEnabled: launchAtLoginEnabled,
             onShowHistory: onShowHistory,
             onClearHistory: onClearHistory,
             onLaunchAtLoginChange: onLaunchAtLoginChange,
             onHotKeyChange: onHotKeyChange,
             onMenuSizeChange: onMenuSizeChange,
+            onMaxHistoryItemsChange: onMaxHistoryItemsChange,
             onOpenAccessibility: onOpenAccessibility,
             onQuit: onQuit
         )
 
         super.init()
 
-        popover.contentSize = NSSize(width: 320, height: 340)
+        popover.contentSize = NSSize(width: 320, height: 390)
         popover.behavior = .transient
         popover.animates = true
         popover.contentViewController = settingsViewController
@@ -60,6 +64,10 @@ final class SettingsPopoverController: NSObject, NSPopoverDelegate {
         settingsViewController.updateMenuSize(size)
     }
 
+    func updateMaxHistoryItems(_ count: Int) {
+        settingsViewController.updateMaxHistoryItems(count)
+    }
+
     func updateLaunchAtLogin(_ enabled: Bool) {
         settingsViewController.updateLaunchAtLogin(enabled)
     }
@@ -74,36 +82,44 @@ final class SettingsViewController: NSViewController {
     private let launchAtLoginButton = NSButton(checkboxWithTitle: "开机自启动", target: nil, action: nil)
     private let recordingHintLabel = NSTextField(labelWithString: "")
     private let menuSizeControl = NSSegmentedControl()
+    private let historyLimitField = NSTextField(string: "")
+    private let historyLimitStepper = NSStepper()
     private var localKeyMonitor: Any?
     private var currentHotKey: HotKey
     private var currentMenuSize: MenuSize
+    private var currentMaxHistoryItems: Int
     private let onShowHistory: () -> Void
     private let onClearHistory: () -> Void
     private let onLaunchAtLoginChange: (Bool) -> Void
     private let onHotKeyChange: (HotKey) -> Void
     private let onMenuSizeChange: (MenuSize) -> Void
+    private let onMaxHistoryItemsChange: (Int) -> Void
     private let onOpenAccessibility: () -> Void
     private let onQuit: () -> Void
 
     init(
         hotKey: HotKey,
         menuSize: MenuSize,
+        maxHistoryItems: Int,
         launchAtLoginEnabled: Bool,
         onShowHistory: @escaping () -> Void,
         onClearHistory: @escaping () -> Void,
         onLaunchAtLoginChange: @escaping (Bool) -> Void,
         onHotKeyChange: @escaping (HotKey) -> Void,
         onMenuSizeChange: @escaping (MenuSize) -> Void,
+        onMaxHistoryItemsChange: @escaping (Int) -> Void,
         onOpenAccessibility: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         currentHotKey = hotKey
         currentMenuSize = menuSize
+        currentMaxHistoryItems = SettingsStore.clampedHistoryLimit(maxHistoryItems)
         self.onShowHistory = onShowHistory
         self.onClearHistory = onClearHistory
         self.onLaunchAtLoginChange = onLaunchAtLoginChange
         self.onHotKeyChange = onHotKeyChange
         self.onMenuSizeChange = onMenuSizeChange
+        self.onMaxHistoryItemsChange = onMaxHistoryItemsChange
         self.onOpenAccessibility = onOpenAccessibility
         self.onQuit = onQuit
 
@@ -117,7 +133,7 @@ final class SettingsViewController: NSViewController {
     }
 
     override func loadView() {
-        view = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 300))
+        view = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 390))
         view.wantsLayer = true
 
         let titleLabel = NSTextField(labelWithString: "全局剪切板")
@@ -167,6 +183,32 @@ final class SettingsViewController: NSViewController {
         menuSizeStack.distribution = .gravityAreas
         menuSizeStack.spacing = 12
 
+        let historyLimitTitleLabel = NSTextField(labelWithString: "历史上限")
+        historyLimitTitleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+
+        historyLimitField.alignment = .right
+        historyLimitField.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        historyLimitField.target = self
+        historyLimitField.action = #selector(commitHistoryLimit)
+
+        historyLimitStepper.minValue = Double(SettingsStore.allowedHistoryRange.lowerBound)
+        historyLimitStepper.maxValue = Double(SettingsStore.allowedHistoryRange.upperBound)
+        historyLimitStepper.increment = 1
+        historyLimitStepper.target = self
+        historyLimitStepper.action = #selector(stepHistoryLimit)
+        updateMaxHistoryItems(currentMaxHistoryItems)
+
+        let historyLimitControlStack = NSStackView(views: [historyLimitField, historyLimitStepper])
+        historyLimitControlStack.orientation = .horizontal
+        historyLimitControlStack.alignment = .centerY
+        historyLimitControlStack.spacing = 6
+
+        let historyLimitStack = NSStackView(views: [historyLimitTitleLabel, historyLimitControlStack])
+        historyLimitStack.orientation = .horizontal
+        historyLimitStack.alignment = .centerY
+        historyLimitStack.distribution = .gravityAreas
+        historyLimitStack.spacing = 12
+
         let showHistoryButton = makeCommandButton(title: "显示历史", symbolName: "list.bullet.clipboard")
         showHistoryButton.target = self
         showHistoryButton.action = #selector(showHistory)
@@ -201,6 +243,7 @@ final class SettingsViewController: NSViewController {
             shortcutStack,
             recordingHintLabel,
             menuSizeStack,
+            historyLimitStack,
             separator(),
             commandGrid
         ])
@@ -220,6 +263,8 @@ final class SettingsViewController: NSViewController {
             shortcutStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
             shortcutButton.widthAnchor.constraint(equalToConstant: 122),
             menuSizeStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            historyLimitStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            historyLimitField.widthAnchor.constraint(equalToConstant: 58),
             commandGrid.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
     }
@@ -235,6 +280,12 @@ final class SettingsViewController: NSViewController {
         if let index = MenuSize.allCases.firstIndex(of: size) {
             menuSizeControl.selectedSegment = index
         }
+    }
+
+    func updateMaxHistoryItems(_ count: Int) {
+        currentMaxHistoryItems = SettingsStore.clampedHistoryLimit(count)
+        historyLimitField.stringValue = "\(currentMaxHistoryItems)"
+        historyLimitStepper.integerValue = currentMaxHistoryItems
     }
 
     func updateLaunchAtLogin(_ enabled: Bool) {
@@ -261,6 +312,14 @@ final class SettingsViewController: NSViewController {
         let size = MenuSize.allCases[index]
         currentMenuSize = size
         onMenuSizeChange(size)
+    }
+
+    @objc private func stepHistoryLimit() {
+        applyHistoryLimit(historyLimitStepper.integerValue)
+    }
+
+    @objc private func commitHistoryLimit() {
+        applyHistoryLimit(historyLimitField.integerValue)
     }
 
     @objc private func startRecording() {
@@ -306,6 +365,12 @@ final class SettingsViewController: NSViewController {
 
         stopRecording()
         onHotKeyChange(hotKey)
+    }
+
+    private func applyHistoryLimit(_ count: Int) {
+        let clamped = SettingsStore.clampedHistoryLimit(count)
+        updateMaxHistoryItems(clamped)
+        onMaxHistoryItemsChange(clamped)
     }
 
     private func makeCommandButton(title: String, symbolName: String) -> NSButton {

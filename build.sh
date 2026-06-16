@@ -62,6 +62,8 @@ xcrun swiftc \
   -o "$MACOS_DIR/$EXECUTABLE_NAME"
 
 xattr -cr "$APP_DIR"
+xattr -d com.apple.FinderInfo "$APP_DIR" 2>/dev/null || true
+xattr -d 'com.apple.fileprovider.fpfs#P' "$APP_DIR" 2>/dev/null || true
 
 if [[ "$RELEASE" == "1" ]]; then
   # 发布签名：hardened runtime + 安全时间戳 + entitlements。
@@ -83,4 +85,3 @@ if [[ "$RELEASE" == "1" ]]; then
 else
   echo "模式：本地测试"
 fi
-

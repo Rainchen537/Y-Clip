@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="Global Clipboard"
 SOURCE_APP="$ROOT_DIR/build/$APP_NAME.app"
-INSTALL_DIR="$HOME/Applications"
+INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 TARGET_APP="$INSTALL_DIR/$APP_NAME.app"
 
 if [[ ! -d "$SOURCE_APP" ]]; then

@@ -3,13 +3,14 @@ import Foundation
 
 // 生成 DMG 安装窗口的背景图。
 // 设计与 app 图标一致的深色石墨调，中间一个「拖入」箭头提示。
-// 窗口逻辑尺寸 640×400，这里按 @2x 输出 1280×800（Retina 清晰）。
+// Finder 的 DMG 背景图按像素原尺寸铺放，不会因为 Retina 自动按 @2x 缩放。
+// 因此背景图必须和 make_dmg.sh 里的窗口尺寸一比一匹配：640×400。
 
-let scale = 2.0
+let scale = 1.0
 let w = 640.0 * scale
 let h = 400.0 * scale
 
-// 用显式 bitmap rep 按精确像素绘制，避开 NSImage.lockFocus 在 Retina 屏的自动 2x 缩放。
+// 用显式 bitmap rep 按精确像素绘制，避开 NSImage.lockFocus 在 Retina 屏的自动缩放。
 let rep = NSBitmapImageRep(
     bitmapDataPlanes: nil,
     pixelsWide: Int(w),

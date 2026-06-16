@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 final class ClipboardHistoryStore {
-    static let maxItems = 12
+    static let defaultMaxItems = 50
 
     private let pasteboard = NSPasteboard.general
     private let saveURL: URL
@@ -18,11 +18,20 @@ final class ClipboardHistoryStore {
         }
     }
 
-    init() {
+    var maxItems: Int {
+        didSet {
+            maxItems = max(1, maxItems)
+            trimToMaxItems()
+        }
+    }
+
+    init(maxItems: Int = ClipboardHistoryStore.defaultMaxItems) {
+        self.maxItems = max(1, maxItems)
         lastChangeCount = pasteboard.changeCount
         saveURL = Self.makeSaveURL()
         imagesDir = saveURL.deletingLastPathComponent().appendingPathComponent("images", isDirectory: true)
         load()
+        trimToMaxItems()
         captureCurrentClipboard()
     }
 
@@ -147,11 +156,20 @@ final class ClipboardHistoryStore {
         next.removeAll { $0.dedupeKey == item.dedupeKey }
         next.insert(item, at: 0)
 
-        if next.count > Self.maxItems {
-            next.removeLast(next.count - Self.maxItems)
+        if next.count > maxItems {
+            next.removeLast(next.count - maxItems)
         }
 
         items = next
+        pruneOrphanImages()
+    }
+
+    private func trimToMaxItems() {
+        guard items.count > maxItems else {
+            return
+        }
+
+        items.removeLast(items.count - maxItems)
         pruneOrphanImages()
     }
 

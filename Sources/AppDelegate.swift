@@ -1,8 +1,8 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let historyStore = ClipboardHistoryStore()
     private let settingsStore = SettingsStore()
+    private lazy var historyStore = ClipboardHistoryStore(maxItems: settingsStore.maxHistoryItems)
     private let panelController = ClipboardPanelController()
     private var hotKeyController: HotKeyController?
     private var settingsPopoverController: SettingsPopoverController?
@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsPopoverController = SettingsPopoverController(
             hotKey: settingsStore.hotKey,
             menuSize: settingsStore.menuSize,
+            maxHistoryItems: settingsStore.maxHistoryItems,
             launchAtLoginEnabled: LaunchAtLoginController.isEnabled,
             onShowHistory: { [weak self] in
                 self?.settingsPopoverController?.close()
@@ -60,6 +61,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onMenuSizeChange: { [weak self] size in
                 self?.settingsStore.menuSize = size
+            },
+            onMaxHistoryItemsChange: { [weak self] count in
+                self?.setMaxHistoryItems(count)
             },
             onOpenAccessibility: {
                 AccessibilityPermission.openSettings()
@@ -129,6 +133,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 message: error.localizedDescription
             )
         }
+    }
+
+    private func setMaxHistoryItems(_ count: Int) {
+        let clamped = SettingsStore.clampedHistoryLimit(count)
+        settingsStore.maxHistoryItems = clamped
+        historyStore.maxItems = clamped
+        settingsPopoverController?.updateMaxHistoryItems(clamped)
     }
 
     private func showClipboardHistory() {
