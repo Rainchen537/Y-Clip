@@ -4,6 +4,23 @@ import Carbon
 final class SettingsPopoverController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private let settingsViewController: SettingsViewController
+    private let anchorView = NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+    private let anchorPanel: NSPanel = {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isReleasedWhenClosed = false
+        panel.level = .floating
+        panel.hasShadow = false
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        return panel
+    }()
     private let previewPanel: NSPanel = {
         let panel = NSPanel(
             contentRect: .zero,
@@ -20,6 +37,8 @@ final class SettingsPopoverController: NSObject, NSPopoverDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         return panel
     }()
+    private var previewHideWorkItem: DispatchWorkItem?
+    private var escapeMonitor: Any?
     var onClose: (() -> Void)?
 
     init(
@@ -37,8 +56,7 @@ final class SettingsPopoverController: NSObject, NSPopoverDelegate {
         onCheckForUpdates: @escaping () -> Void,
         onInstallUpdate: @escaping () -> Void,
         onOpenAccessibility: @escaping () -> Void,
-        onOpenGitHub: @escaping () -> Void,
-        onQuit: @escaping () -> Void
+        onOpenGitHub: @escaping () -> Void
     ) {
         settingsViewController = SettingsViewController(
             hotKey: hotKey,
@@ -55,8 +73,7 @@ final class SettingsPopoverController: NSObject, NSPopoverDelegate {
             onCheckForUpdates: onCheckForUpdates,
             onInstallUpdate: onInstallUpdate,
             onOpenAccessibility: onOpenAccessibility,
-            onOpenGitHub: onOpenGitHub,
-            onQuit: onQuit
+            onOpenGitHub: onOpenGitHub
         )
 
         super.init()
@@ -66,9 +83,10 @@ final class SettingsPopoverController: NSObject, NSPopoverDelegate {
         popover.animates = true
         popover.contentViewController = settingsViewController
         popover.delegate = self
+        anchorPanel.contentView = anchorView
         previewPanel.contentView = settingsViewController.previewView
-        settingsViewController.onPreviewMetricsChange = { [weak self] in
-            self?.positionPreviewPanel()
+        settingsViewController.onPreviewAdjustment = { [weak self] in
+            self?.showPreviewPanelTemporarily()
         }
     }
 
@@ -79,9 +97,18 @@ final class SettingsPopoverController: NSObject, NSPopoverDelegate {
     func show(relativeTo view: NSView, preferredEdge: NSRectEdge = .minY) {
         updateLaunchAtLogin(LaunchAtLoginController.isEnabled)
         popover.show(relativeTo: view.bounds, of: view, preferredEdge: preferredEdge)
-        DispatchQueue.main.async { [weak self] in
-            self?.showPreviewPanel()
-        }
+        beginEscapeMonitoring()
+    }
+
+    func show(near screenRect: NSRect, preferredEdge: NSRectEdge = .maxX) {
+        updateLaunchAtLogin(LaunchAtLoginController.isEnabled)
+        anchorPanel.setFrame(
+            NSRect(x: screenRect.midX, y: screenRect.midY, width: 1, height: 1),
+            display: false
+        )
+        anchorPanel.orderFront(nil)
+        popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: preferredEdge)
+        beginEscapeMonitoring()
     }
 
     func close() {
@@ -94,7 +121,6 @@ final class SettingsPopoverController: NSObject, NSPopoverDelegate {
 
     func updatePanelMetrics(_ metrics: HistoryPanelMetrics) {
         settingsViewController.updatePanelMetrics(metrics)
-        positionPreviewPanel()
     }
 
     func updateMaxHistoryItems(_ count: Int) {
@@ -110,18 +136,55 @@ final class SettingsPopoverController: NSObject, NSPopoverDelegate {
     }
 
     func popoverDidClose(_ notification: Notification) {
+        endEscapeMonitoring()
+        previewHideWorkItem?.cancel()
+        previewHideWorkItem = nil
         previewPanel.orderOut(nil)
+        anchorPanel.orderOut(nil)
         settingsViewController.stopRecording()
         onClose?()
     }
 
-    private func showPreviewPanel() {
+    private func beginEscapeMonitoring() {
+        endEscapeMonitoring()
+
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard Int(event.keyCode) == kVK_Escape else {
+                return event
+            }
+
+            if self?.settingsViewController.isRecordingHotKey == true {
+                return event
+            }
+
+            self?.close()
+            return nil
+        }
+    }
+
+    private func endEscapeMonitoring() {
+        if let escapeMonitor {
+            NSEvent.removeMonitor(escapeMonitor)
+        }
+
+        escapeMonitor = nil
+    }
+
+    private func showPreviewPanelTemporarily() {
         guard popover.isShown else {
             return
         }
 
         positionPreviewPanel()
         previewPanel.orderFront(nil)
+
+        previewHideWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.previewPanel.orderOut(nil)
+            self?.previewHideWorkItem = nil
+        }
+        previewHideWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: workItem)
     }
 
     private func positionPreviewPanel() {
@@ -195,10 +258,12 @@ final class SettingsViewController: NSViewController {
     private let onInstallUpdate: () -> Void
     private let onOpenAccessibility: () -> Void
     private let onOpenGitHub: () -> Void
-    private let onQuit: () -> Void
-    var onPreviewMetricsChange: (() -> Void)?
+    var onPreviewAdjustment: (() -> Void)?
     var panelMetrics: HistoryPanelMetrics {
         currentPanelMetrics
+    }
+    var isRecordingHotKey: Bool {
+        localKeyMonitor != nil
     }
 
     init(
@@ -216,8 +281,7 @@ final class SettingsViewController: NSViewController {
         onCheckForUpdates: @escaping () -> Void,
         onInstallUpdate: @escaping () -> Void,
         onOpenAccessibility: @escaping () -> Void,
-        onOpenGitHub: @escaping () -> Void,
-        onQuit: @escaping () -> Void
+        onOpenGitHub: @escaping () -> Void
     ) {
         currentHotKey = hotKey
         currentPanelMetrics = panelMetrics
@@ -232,7 +296,6 @@ final class SettingsViewController: NSViewController {
         self.onInstallUpdate = onInstallUpdate
         self.onOpenAccessibility = onOpenAccessibility
         self.onOpenGitHub = onOpenGitHub
-        self.onQuit = onQuit
 
         super.init(nibName: nil, bundle: nil)
 
@@ -372,10 +435,6 @@ final class SettingsViewController: NSViewController {
         updateButton.target = self
         updateButton.action = #selector(checkForUpdates)
 
-        let quitButton = makeCommandButton(title: "退出", symbolName: "power")
-        quitButton.target = self
-        quitButton.action = #selector(quit)
-
         updateStatusLabel.font = .systemFont(ofSize: 11)
         updateStatusLabel.textColor = .secondaryLabelColor
         updateStatusLabel.lineBreakMode = .byTruncatingTail
@@ -383,8 +442,7 @@ final class SettingsViewController: NSViewController {
 
         let commandGrid = NSGridView(views: [
             [clearButton, permissionButton],
-            [githubButton, updateButton],
-            [quitButton, NSView()]
+            [githubButton, updateButton]
         ])
         commandGrid.rowSpacing = 8
         commandGrid.columnSpacing = 8
@@ -445,7 +503,6 @@ final class SettingsViewController: NSViewController {
         widthValueLabel.stringValue = "\(Int(round(metrics.width)))"
         lengthValueLabel.stringValue = String(format: "%.1f 行", Double(metrics.visibleRows))
         previewView.metrics = metrics
-        onPreviewMetricsChange?()
     }
 
     func updateMaxHistoryItems(_ count: Int) {
@@ -529,6 +586,7 @@ final class SettingsViewController: NSViewController {
         )
         updatePanelMetrics(metrics)
         onPanelMetricsChange(metrics)
+        onPreviewAdjustment?()
     }
 
     @objc private func stepHistoryLimit() {
@@ -563,10 +621,6 @@ final class SettingsViewController: NSViewController {
 
     @objc private func openGitHub() {
         onOpenGitHub()
-    }
-
-    @objc private func quit() {
-        onQuit()
     }
 
     private func record(_ event: NSEvent) {
@@ -702,7 +756,7 @@ final class ClipboardPreviewView: NSView {
         panelView.blendingMode = .withinWindow
         panelView.state = .active
         panelView.wantsLayer = true
-        panelView.alphaValue = 0.76
+        panelView.alphaValue = 0.85
         panelView.layer?.cornerRadius = 10
         panelView.layer?.masksToBounds = true
         panelView.layer?.borderWidth = 1

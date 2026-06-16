@@ -10,7 +10,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var focusContext: FocusContext?
     private var hasShownAccessibilityWarning = false
-    private var closeHistoryPanelAfterSettingsClose = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -28,7 +27,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.historyStore.imageURL(for: payload) ?? URL(fileURLWithPath: "/dev/null")
         }
         panelController.onOpenSettings = { [weak self] sourceView in
-            self?.showSettingsPopover(relativeTo: sourceView, preferredEdge: .maxX, closeHistoryOnClose: true)
+            guard let self else {
+                return
+            }
+
+            let screenRect = screenRect(for: sourceView)
+            panelController.close()
+            showSettingsPopover(near: screenRect, preferredEdge: .maxX)
         }
     }
 
@@ -87,19 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let url = URL(string: "https://github.com/Rainchen537/global-clipboard") {
                     NSWorkspace.shared.open(url)
                 }
-            },
-            onQuit: {
-                NSApp.terminate(nil)
             }
         )
-        settingsPopoverController?.onClose = { [weak self] in
-            guard let self, closeHistoryPanelAfterSettingsClose else {
-                return
-            }
-
-            closeHistoryPanelAfterSettingsClose = false
-            panelController.close()
-        }
     }
 
     @objc private func toggleSettingsPopover() {
@@ -112,8 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showSettingsPopover(
         relativeTo view: NSView,
-        preferredEdge: NSRectEdge,
-        closeHistoryOnClose: Bool = false
+        preferredEdge: NSRectEdge
     ) {
         guard let settingsPopoverController else {
             return
@@ -122,9 +115,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsPopoverController.isShown {
             settingsPopoverController.close()
         } else {
-            closeHistoryPanelAfterSettingsClose = closeHistoryOnClose
             settingsPopoverController.show(relativeTo: view, preferredEdge: preferredEdge)
         }
+    }
+
+    private func showSettingsPopover(near screenRect: NSRect, preferredEdge: NSRectEdge) {
+        guard let settingsPopoverController else {
+            return
+        }
+
+        if settingsPopoverController.isShown {
+            settingsPopoverController.close()
+        } else {
+            settingsPopoverController.show(near: screenRect, preferredEdge: preferredEdge)
+        }
+    }
+
+    private func screenRect(for view: NSView) -> NSRect {
+        guard let window = view.window else {
+            let mouseLocation = NSEvent.mouseLocation
+            return NSRect(x: mouseLocation.x, y: mouseLocation.y, width: 1, height: 1)
+        }
+
+        return window.convertToScreen(view.convert(view.bounds, to: nil))
     }
 
     private func registerHotKey(_ hotKey: HotKey) {
