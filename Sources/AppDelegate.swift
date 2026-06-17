@@ -298,8 +298,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.addButton(withTitle: "稍后")
         } else {
             alert.messageText = "已复制到剪贴板"
-            alert.informativeText = "当前还没有授予辅助功能权限，所以暂时不会自动粘贴。开启权限后，选择历史记录会继续粘贴到原本聚焦的输入框。"
+            alert.informativeText = "当前还没有授予辅助功能权限，所以暂时不会自动粘贴。若系统设置里看起来已经开启但仍不生效，可以先刷新权限记录。"
             alert.addButton(withTitle: "打开系统设置")
+            alert.addButton(withTitle: "刷新权限记录")
             alert.addButton(withTitle: "稍后")
         }
 
@@ -311,6 +312,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if response == (wasTrustedBefore ? .alertSecondButtonReturn : .alertFirstButtonReturn) {
             AccessibilityPermission.requestPrompt()
             AccessibilityPermission.openSettings()
+        } else if !wasTrustedBefore, response == .alertSecondButtonReturn {
+            refreshAccessibilityAuthorization()
         }
     }
 
