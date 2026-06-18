@@ -403,6 +403,10 @@ final class SettingsViewController: NSViewController {
         )
         updatePanelMetrics(currentPanelMetrics)
 
+        let resetDisplayButton = makeInlineCommandButton(title: "恢复默认", symbolName: "arrow.counterclockwise")
+        resetDisplayButton.target = self
+        resetDisplayButton.action = #selector(confirmResetPanelMetrics)
+
         let displaySection = makeSection(
             title: "显示",
             views: [
@@ -410,6 +414,7 @@ final class SettingsViewController: NSViewController {
                 makeSliderRow(title: "宽度", slider: widthSlider, valueLabel: widthValueLabel),
                 makeSliderRow(title: "长度", slider: lengthSlider, valueLabel: lengthValueLabel)
             ],
+            trailingView: resetDisplayButton,
             onHoverChange: { [weak self] isHovering in
                 self?.onDisplayHoverChange?(isHovering)
             }
@@ -654,6 +659,24 @@ final class SettingsViewController: NSViewController {
         onPreviewAdjustment?()
     }
 
+    @objc private func confirmResetPanelMetrics() {
+        let alert = NSAlert()
+        alert.messageText = "恢复默认显示设置？"
+        alert.informativeText = "大小、宽度和长度会恢复到默认值。"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "恢复默认")
+        alert.addButton(withTitle: "取消")
+
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return
+        }
+
+        let metrics = HistoryPanelMetrics.default
+        updatePanelMetrics(metrics)
+        onPanelMetricsChange(metrics)
+        onPreviewAdjustment?()
+    }
+
     @objc private func stepHistoryLimit() {
         applyHistoryLimit(historyLimitStepper.integerValue)
     }
@@ -737,12 +760,27 @@ final class SettingsViewController: NSViewController {
     private func makeSection(
         title: String,
         views: [NSView],
+        trailingView: NSView? = nil,
         onHoverChange: ((Bool) -> Void)? = nil
     ) -> NSView {
         let titleLabel = label(title, weight: .semibold)
         titleLabel.textColor = .labelColor
 
-        let stack = NSStackView(views: [titleLabel] + views)
+        let headerRow = NSStackView(views: [titleLabel])
+        headerRow.orientation = .horizontal
+        headerRow.alignment = .centerY
+        headerRow.spacing = 8
+        headerRow.translatesAutoresizingMaskIntoConstraints = false
+
+        if let trailingView {
+            let spacer = NSView()
+            spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            headerRow.addArrangedSubview(spacer)
+            headerRow.addArrangedSubview(trailingView)
+        }
+
+        let stack = NSStackView(views: [headerRow] + views)
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
@@ -767,7 +805,8 @@ final class SettingsViewController: NSViewController {
             stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
             stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
             stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -14),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12)
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
+            headerRow.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
 
         return container
@@ -776,6 +815,19 @@ final class SettingsViewController: NSViewController {
     private func makeCommandButton(title: String, symbolName: String) -> NSButton {
         let button = NSButton(title: title, target: nil, action: nil)
         configureCommandButton(button, title: title, symbolName: symbolName)
+        return button
+    }
+
+    private func makeInlineCommandButton(title: String, symbolName: String) -> NSButton {
+        let button = NSButton(title: title, target: nil, action: nil)
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+        button.font = .systemFont(ofSize: 12, weight: .regular)
+        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
+        button.imagePosition = .imageLeading
+        button.alignment = .center
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.heightAnchor.constraint(equalToConstant: 24).isActive = true
         return button
     }
 
