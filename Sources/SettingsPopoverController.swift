@@ -79,7 +79,7 @@ final class SettingsPopoverController: NSObject, NSPopoverDelegate {
 
         super.init()
 
-        popover.contentSize = NSSize(width: 432, height: 520)
+        popover.contentSize = NSSize(width: 420, height: 640)
         popover.behavior = .transient
         popover.animates = true
         popover.contentViewController = settingsViewController
@@ -284,19 +284,29 @@ final class SettingsPopoverController: NSObject, NSPopoverDelegate {
 }
 
 final class SettingsViewController: NSViewController {
+    private enum ButtonRole {
+        case primary
+        case secondary
+        case link
+        case danger
+    }
+
     let previewView = ClipboardPreviewView()
     private let shortcutButton = NSButton(title: "", target: nil, action: nil)
-    private let launchAtLoginButton = NSButton(checkboxWithTitle: "开机自启动", target: nil, action: nil)
-    private let autoUpdateButton = NSButton(checkboxWithTitle: "自动检查更新", target: nil, action: nil)
+    private let launchAtLoginSwitch = NSSwitch(frame: .zero)
+    private let launchAtLoginStatusPill = SettingsPillView()
+    private let autoUpdateSwitch = NSSwitch(frame: .zero)
+    private let autoUpdateStatusPill = SettingsPillView()
     private let recordingHintLabel = NSTextField(labelWithString: "")
     private let scaleSlider = NSSlider()
-    private let scaleValueLabel = NSTextField(labelWithString: "")
+    private let scaleValuePill = SettingsPillView()
     private let widthSlider = NSSlider()
-    private let widthValueLabel = NSTextField(labelWithString: "")
+    private let widthValuePill = SettingsPillView()
     private let lengthSlider = NSSlider()
-    private let lengthValueLabel = NSTextField(labelWithString: "")
+    private let lengthValuePill = SettingsPillView()
     private let updateButton = NSButton(title: "检查更新", target: nil, action: nil)
-    private let updateStatusLabel = NSTextField(labelWithString: " ")
+    private let updateStatusLabel = NSTextField(labelWithString: "尚未检查更新。")
+    private let versionPill = SettingsPillView()
     private let historyLimitField = NSTextField(string: "")
     private let historyLimitStepper = NSStepper()
     private var localKeyMonitor: Any?
@@ -356,8 +366,8 @@ final class SettingsViewController: NSViewController {
 
         super.init(nibName: nil, bundle: nil)
 
-        launchAtLoginButton.state = launchAtLoginEnabled ? .on : .off
-        autoUpdateButton.state = autoUpdateEnabled ? .on : .off
+        launchAtLoginSwitch.state = launchAtLoginEnabled ? .on : .off
+        autoUpdateSwitch.state = autoUpdateEnabled ? .on : .off
     }
 
     required init?(coder: NSCoder) {
@@ -365,54 +375,30 @@ final class SettingsViewController: NSViewController {
     }
 
     override func loadView() {
-        let rootView = SettingsRootView(frame: NSRect(x: 0, y: 0, width: 432, height: 520))
-        rootView.material = .popover
+        let rootView = SettingsRootView(frame: NSRect(x: 0, y: 0, width: 420, height: 640))
+        rootView.material = .hudWindow
         rootView.blendingMode = .withinWindow
         rootView.state = .active
+        rootView.appearance = NSAppearance(named: .darkAqua)
+        rootView.wantsLayer = true
+        rootView.layer?.cornerRadius = 22
+        rootView.layer?.masksToBounds = true
         view = rootView
 
-        let titleLabel = NSTextField(labelWithString: "全局剪切板")
-        titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
+        configureControls()
 
-        let subtitleLabel = NSTextField(labelWithString: "调整呼出面板、快捷键和启动行为")
-        subtitleLabel.font = .systemFont(ofSize: 12, weight: .regular)
-        subtitleLabel.textColor = .secondaryLabelColor
-
-        let titleStack = NSStackView(views: [titleLabel, subtitleLabel])
-        titleStack.orientation = .vertical
-        titleStack.spacing = 2
-        titleStack.alignment = .leading
-
-        configureSlider(
-            scaleSlider,
-            min: HistoryPanelMetrics.scaleRange.lowerBound,
-            max: HistoryPanelMetrics.scaleRange.upperBound,
-            action: #selector(changePanelMetrics)
-        )
-        configureSlider(
-            widthSlider,
-            min: HistoryPanelMetrics.widthRange.lowerBound,
-            max: HistoryPanelMetrics.widthRange.upperBound,
-            action: #selector(changePanelMetrics)
-        )
-        configureSlider(
-            lengthSlider,
-            min: HistoryPanelMetrics.visibleRowsRange.lowerBound,
-            max: HistoryPanelMetrics.visibleRowsRange.upperBound,
-            action: #selector(changePanelMetrics)
-        )
-        updatePanelMetrics(currentPanelMetrics)
-
-        let resetDisplayButton = makeInlineCommandButton(title: "恢复默认", symbolName: "arrow.counterclockwise")
+        let resetDisplayButton = makeActionButton(title: "恢复默认", symbolName: "arrow.counterclockwise", role: .secondary)
         resetDisplayButton.target = self
         resetDisplayButton.action = #selector(confirmResetPanelMetrics)
 
-        let displaySection = makeSection(
-            title: "显示",
+        let clipboardSection = makeSection(
+            title: "剪贴板",
+            symbolName: "clipboard",
             views: [
-                makeSliderRow(title: "大小", slider: scaleSlider, valueLabel: scaleValueLabel),
-                makeSliderRow(title: "宽度", slider: widthSlider, valueLabel: widthValueLabel),
-                makeSliderRow(title: "长度", slider: lengthSlider, valueLabel: lengthValueLabel)
+                makeSliderRow(title: "面板大小", slider: scaleSlider, valuePill: scaleValuePill),
+                makeSliderRow(title: "面板宽度", slider: widthSlider, valuePill: widthValuePill),
+                makeSliderRow(title: "显示行数", slider: lengthSlider, valuePill: lengthValuePill),
+                makeHistoryLimitRow()
             ],
             trailingView: resetDisplayButton,
             onHoverChange: { [weak self] isHovering in
@@ -420,137 +406,109 @@ final class SettingsViewController: NSViewController {
             }
         )
 
-        let shortcutTitleLabel = NSTextField(labelWithString: "快捷键")
-        shortcutTitleLabel.font = .systemFont(ofSize: 13, weight: .medium)
-
-        shortcutButton.bezelStyle = .rounded
-        shortcutButton.target = self
-        shortcutButton.action = #selector(startRecording)
-        shortcutButton.setButtonType(.momentaryPushIn)
-        shortcutButton.font = .monospacedSystemFont(ofSize: 13, weight: .medium)
-        shortcutButton.contentTintColor = .controlAccentColor
-        updateHotKey(currentHotKey)
-
-        recordingHintLabel.font = .systemFont(ofSize: 11)
-        recordingHintLabel.textColor = .secondaryLabelColor
-        recordingHintLabel.stringValue = " "
-
-        let shortcutRow = NSStackView(views: [shortcutTitleLabel, shortcutButton])
-        shortcutRow.orientation = .horizontal
-        shortcutRow.alignment = .centerY
-        shortcutRow.distribution = .gravityAreas
-        shortcutRow.spacing = 12
-
-        historyLimitField.alignment = .right
-        historyLimitField.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
-        historyLimitField.target = self
-        historyLimitField.action = #selector(commitHistoryLimit)
-
-        historyLimitStepper.minValue = Double(SettingsStore.allowedHistoryRange.lowerBound)
-        historyLimitStepper.maxValue = Double(SettingsStore.allowedHistoryRange.upperBound)
-        historyLimitStepper.increment = 1
-        historyLimitStepper.target = self
-        historyLimitStepper.action = #selector(stepHistoryLimit)
-        updateMaxHistoryItems(currentMaxHistoryItems)
-
-        let historyLimitControls = NSStackView(views: [historyLimitField, historyLimitStepper])
-        historyLimitControls.orientation = .horizontal
-        historyLimitControls.alignment = .centerY
-        historyLimitControls.spacing = 6
-
-        let historyLimitRow = NSStackView(views: [
-            label("历史上限", weight: .medium),
-            historyLimitControls
-        ])
-        historyLimitRow.orientation = .horizontal
-        historyLimitRow.alignment = .centerY
-        historyLimitRow.distribution = .gravityAreas
-        historyLimitRow.spacing = 12
-
-        launchAtLoginButton.target = self
-        launchAtLoginButton.action = #selector(toggleLaunchAtLogin)
-
-        autoUpdateButton.target = self
-        autoUpdateButton.action = #selector(toggleAutoUpdate)
-
         let behaviorSection = makeSection(
             title: "行为",
+            symbolName: "switch.2",
             views: [
-                launchAtLoginButton,
-                autoUpdateButton,
-                shortcutRow,
-                recordingHintLabel,
-                historyLimitRow
+                makeSettingsRow(title: "快捷键", control: shortcutButton),
+                makeSettingsRow(title: "开机启动", control: makeHorizontalControls([launchAtLoginStatusPill, launchAtLoginSwitch])),
+                makeSettingsRow(title: "自动检查更新", control: makeHorizontalControls([autoUpdateStatusPill, autoUpdateSwitch])),
+                recordingHintLabel
             ]
         )
 
-        let clearButton = makeCommandButton(title: "清空历史", symbolName: "trash")
+        let clearButton = makeActionButton(title: "清空...", symbolName: "trash", role: .danger)
         clearButton.target = self
-        clearButton.action = #selector(clearHistory)
+        clearButton.action = #selector(confirmClearHistory)
 
-        let permissionButton = makeCommandButton(title: "辅助功能", symbolName: "accessibility")
-        permissionButton.target = self
-        permissionButton.action = #selector(openAccessibility)
+        let actionsSection = makeSection(
+            title: "操作",
+            symbolName: "slider.horizontal.3",
+            views: [
+                makeSettingsRow(title: "清空历史", control: clearButton)
+            ]
+        )
 
-        let githubButton = makeCommandButton(title: "GitHub", symbolName: "link")
+        versionPill.setText(appVersionString, style: .neutral)
+
+        let githubButton = makeActionButton(title: "GitHub", symbolName: "arrow.up.right.square", role: .link)
         githubButton.target = self
         githubButton.action = #selector(openGitHub)
 
-        configureCommandButton(updateButton, title: "检查更新", symbolName: "arrow.triangle.2.circlepath")
+        let permissionButton = makeActionButton(title: "辅助功能", symbolName: "accessibility", role: .secondary)
+        permissionButton.target = self
+        permissionButton.action = #selector(openAccessibility)
+
+        configureActionButton(updateButton, title: "检查更新", symbolName: "arrow.triangle.2.circlepath", role: .primary)
         updateButton.target = self
         updateButton.action = #selector(checkForUpdates)
 
-        updateStatusLabel.font = .systemFont(ofSize: 11)
-        updateStatusLabel.textColor = .secondaryLabelColor
-        updateStatusLabel.lineBreakMode = .byTruncatingTail
-        updateStatusLabel.maximumNumberOfLines = 2
+        let aboutSection = makeSection(
+            title: "关于",
+            symbolName: "info.circle",
+            views: [
+                makeSettingsRow(title: "当前版本", control: makeHorizontalControls([versionPill, updateButton])),
+                makeSettingsRow(title: "项目主页", control: githubButton),
+                makeSettingsRow(title: "系统权限", control: permissionButton),
+                updateStatusLabel
+            ]
+        )
 
-        let commandGrid = NSGridView(views: [
-            [clearButton, permissionButton],
-            [githubButton, updateButton]
-        ])
-        commandGrid.rowSpacing = 8
-        commandGrid.columnSpacing = 8
-        for columnIndex in 0..<2 {
-            commandGrid.column(at: columnIndex).xPlacement = .fill
-        }
-
-        let actionsSection = makeSection(title: "操作", views: [commandGrid, updateStatusLabel])
-
-        let controlsStack = NSStackView(views: [
-            titleStack,
-            displaySection,
+        let contentStack = NSStackView(views: [
+            makeHeaderView(),
+            clipboardSection,
             behaviorSection,
-            actionsSection
+            actionsSection,
+            aboutSection
         ])
-        controlsStack.orientation = .vertical
-        controlsStack.alignment = .leading
-        controlsStack.spacing = 12
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 16
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let rootStack = NSStackView(views: [controlsStack])
-        rootStack.orientation = .vertical
-        rootStack.alignment = .top
-        rootStack.spacing = 0
-        rootStack.translatesAutoresizingMaskIntoConstraints = false
+        let contentView = NSView()
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(contentStack)
 
-        view.addSubview(rootStack)
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.borderType = .noBorder
+        scrollView.autohidesScrollers = true
+        scrollView.documentView = contentView
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(scrollView)
 
         NSLayoutConstraint.activate([
-            rootStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 18),
-            rootStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18),
-            rootStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18),
-            rootStack.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor, constant: -18),
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            controlsStack.widthAnchor.constraint(equalToConstant: 396),
-            displaySection.widthAnchor.constraint(equalTo: controlsStack.widthAnchor),
-            behaviorSection.widthAnchor.constraint(equalTo: controlsStack.widthAnchor),
-            actionsSection.widthAnchor.constraint(equalTo: controlsStack.widthAnchor),
-            shortcutRow.widthAnchor.constraint(equalTo: behaviorSection.widthAnchor, constant: -28),
-            shortcutButton.widthAnchor.constraint(equalToConstant: 122),
-            historyLimitRow.widthAnchor.constraint(equalTo: behaviorSection.widthAnchor, constant: -28),
-            historyLimitField.widthAnchor.constraint(equalToConstant: 58),
-            commandGrid.widthAnchor.constraint(equalTo: actionsSection.widthAnchor, constant: -28)
+            contentView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: scrollView.contentView.bottomAnchor),
+            contentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+
+            contentStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 18),
+            contentStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            contentStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            contentStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -18),
+
+            clipboardSection.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+            behaviorSection.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+            actionsSection.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+            aboutSection.widthAnchor.constraint(equalTo: contentStack.widthAnchor)
         ])
+
+        updatePanelMetrics(currentPanelMetrics)
+        updateHotKey(currentHotKey)
+        updateMaxHistoryItems(currentMaxHistoryItems)
+        updateLaunchAtLogin(launchAtLoginSwitch.state == .on)
+        updateAutoUpdateState(autoUpdateSwitch.state == .on)
+        updateUpdateStatus(currentUpdateStatus)
     }
 
     func clearInitialFocus() {
@@ -561,7 +519,8 @@ final class SettingsViewController: NSViewController {
     func updateHotKey(_ hotKey: HotKey) {
         currentHotKey = hotKey
         shortcutButton.title = hotKey.displayName
-        recordingHintLabel.stringValue = " "
+        recordingHintLabel.stringValue = ""
+        recordingHintLabel.isHidden = true
     }
 
     func updatePanelMetrics(_ metrics: HistoryPanelMetrics) {
@@ -569,9 +528,9 @@ final class SettingsViewController: NSViewController {
         scaleSlider.doubleValue = Double(metrics.scale)
         widthSlider.doubleValue = Double(metrics.width)
         lengthSlider.doubleValue = Double(metrics.visibleRows)
-        scaleValueLabel.stringValue = "\(Int(round(metrics.scale * 100)))%"
-        widthValueLabel.stringValue = "\(Int(round(metrics.width)))"
-        lengthValueLabel.stringValue = String(format: "%.1f 行", Double(metrics.visibleRows))
+        scaleValuePill.setText("\(Int(round(metrics.scale * 100)))%", style: .accent)
+        widthValuePill.setText("\(Int(round(metrics.width))) px", style: .neutral)
+        lengthValuePill.setText(String(format: "%.1f 行", Double(metrics.visibleRows)), style: .neutral)
         previewView.metrics = metrics
     }
 
@@ -582,7 +541,8 @@ final class SettingsViewController: NSViewController {
     }
 
     func updateLaunchAtLogin(_ enabled: Bool) {
-        launchAtLoginButton.state = enabled ? .on : .off
+        launchAtLoginSwitch.state = enabled ? .on : .off
+        launchAtLoginStatusPill.setText(enabled ? "已开启" : "未开启", style: enabled ? .success : .disabled)
     }
 
     func updateUpdateStatus(_ status: SoftwareUpdateStatus) {
@@ -590,32 +550,32 @@ final class SettingsViewController: NSViewController {
 
         switch status {
         case .idle:
-            updateButton.title = "检查更新"
+            configureActionButton(updateButton, title: "检查更新", symbolName: "arrow.triangle.2.circlepath", role: .primary)
             updateButton.isEnabled = true
-            updateStatusLabel.stringValue = " "
+            updateStatusLabel.stringValue = "尚未检查更新。"
             updateStatusLabel.textColor = .secondaryLabelColor
         case .checking:
-            updateButton.title = "检查中"
+            configureActionButton(updateButton, title: "检查中", symbolName: "arrow.triangle.2.circlepath", role: .secondary)
             updateButton.isEnabled = false
-            updateStatusLabel.stringValue = "正在检查 GitHub Release…"
+            updateStatusLabel.stringValue = "正在检查 GitHub Release..."
             updateStatusLabel.textColor = .secondaryLabelColor
         case let .upToDate(version):
-            updateButton.title = "检查更新"
+            configureActionButton(updateButton, title: "检查更新", symbolName: "arrow.triangle.2.circlepath", role: .primary)
             updateButton.isEnabled = true
-            updateStatusLabel.stringValue = "已是最新版 \(version)"
-            updateStatusLabel.textColor = .secondaryLabelColor
+            updateStatusLabel.stringValue = "已是最新版 \(version)。"
+            updateStatusLabel.textColor = .systemGreen
         case let .available(version, _, _):
-            updateButton.title = "安装更新"
+            configureActionButton(updateButton, title: "安装更新", symbolName: "arrow.down.circle", role: .primary)
             updateButton.isEnabled = true
             updateStatusLabel.stringValue = "发现新版本 \(version)，点击安装更新。"
             updateStatusLabel.textColor = .controlAccentColor
         case let .installing(message):
-            updateButton.title = "安装中"
+            configureActionButton(updateButton, title: "安装中", symbolName: "arrow.down.circle", role: .secondary)
             updateButton.isEnabled = false
             updateStatusLabel.stringValue = message
             updateStatusLabel.textColor = .secondaryLabelColor
         case let .failed(message):
-            updateButton.title = "检查更新"
+            configureActionButton(updateButton, title: "检查更新", symbolName: "arrow.triangle.2.circlepath", role: .primary)
             updateButton.isEnabled = true
             updateStatusLabel.stringValue = message
             updateStatusLabel.textColor = .systemRed
@@ -629,15 +589,20 @@ final class SettingsViewController: NSViewController {
 
         localKeyMonitor = nil
         shortcutButton.title = currentHotKey.displayName
-        recordingHintLabel.stringValue = " "
+        recordingHintLabel.stringValue = ""
+        recordingHintLabel.isHidden = true
     }
 
     @objc private func toggleLaunchAtLogin() {
-        onLaunchAtLoginChange(launchAtLoginButton.state == .on)
+        let enabled = launchAtLoginSwitch.state == .on
+        updateLaunchAtLogin(enabled)
+        onLaunchAtLoginChange(enabled)
     }
 
     @objc private func toggleAutoUpdate() {
-        onAutoUpdateChange(autoUpdateButton.state == .on)
+        let enabled = autoUpdateSwitch.state == .on
+        updateAutoUpdateState(enabled)
+        onAutoUpdateChange(enabled)
     }
 
     @objc private func checkForUpdates() {
@@ -662,7 +627,7 @@ final class SettingsViewController: NSViewController {
     @objc private func confirmResetPanelMetrics() {
         let alert = NSAlert()
         alert.messageText = "恢复默认显示设置？"
-        alert.informativeText = "大小、宽度和长度会恢复到默认值。"
+        alert.informativeText = "大小、宽度和显示行数会恢复到默认值。"
         alert.alertStyle = .warning
         alert.addButton(withTitle: "恢复默认")
         alert.addButton(withTitle: "取消")
@@ -688,6 +653,8 @@ final class SettingsViewController: NSViewController {
     @objc private func startRecording() {
         shortcutButton.title = "录制中"
         recordingHintLabel.stringValue = "按下新的组合键，Esc 取消"
+        recordingHintLabel.textColor = .secondaryLabelColor
+        recordingHintLabel.isHidden = false
 
         if localKeyMonitor != nil {
             return
@@ -699,7 +666,18 @@ final class SettingsViewController: NSViewController {
         }
     }
 
-    @objc private func clearHistory() {
+    @objc private func confirmClearHistory() {
+        let alert = NSAlert()
+        alert.messageText = "清空剪贴板历史？"
+        alert.informativeText = "已记录的文字和图片历史会被删除，当前系统剪贴板内容不受影响。"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "清空")
+        alert.addButton(withTitle: "取消")
+
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return
+        }
+
         onClearHistory()
     }
 
@@ -711,6 +689,73 @@ final class SettingsViewController: NSViewController {
         onOpenGitHub()
     }
 
+    private func configureControls() {
+        configureSlider(
+            scaleSlider,
+            min: HistoryPanelMetrics.scaleRange.lowerBound,
+            max: HistoryPanelMetrics.scaleRange.upperBound,
+            action: #selector(changePanelMetrics)
+        )
+        configureSlider(
+            widthSlider,
+            min: HistoryPanelMetrics.widthRange.lowerBound,
+            max: HistoryPanelMetrics.widthRange.upperBound,
+            action: #selector(changePanelMetrics)
+        )
+        configureSlider(
+            lengthSlider,
+            min: HistoryPanelMetrics.visibleRowsRange.lowerBound,
+            max: HistoryPanelMetrics.visibleRowsRange.upperBound,
+            action: #selector(changePanelMetrics)
+        )
+
+        [scaleValuePill, widthValuePill, lengthValuePill].forEach { pill in
+            pill.widthAnchor.constraint(greaterThanOrEqualToConstant: 70).isActive = true
+        }
+
+        shortcutButton.bezelStyle = .rounded
+        shortcutButton.controlSize = .regular
+        shortcutButton.target = self
+        shortcutButton.action = #selector(startRecording)
+        shortcutButton.setButtonType(.momentaryPushIn)
+        shortcutButton.font = .monospacedSystemFont(ofSize: 13, weight: .semibold)
+        shortcutButton.contentTintColor = .controlAccentColor
+        shortcutButton.translatesAutoresizingMaskIntoConstraints = false
+        shortcutButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 102).isActive = true
+        shortcutButton.heightAnchor.constraint(equalToConstant: 28).isActive = true
+
+        recordingHintLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        recordingHintLabel.textColor = .secondaryLabelColor
+        recordingHintLabel.lineBreakMode = .byTruncatingTail
+        recordingHintLabel.isHidden = true
+
+        historyLimitField.alignment = .right
+        historyLimitField.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        historyLimitField.controlSize = .small
+        historyLimitField.focusRingType = .none
+        historyLimitField.target = self
+        historyLimitField.action = #selector(commitHistoryLimit)
+        historyLimitField.translatesAutoresizingMaskIntoConstraints = false
+        historyLimitField.widthAnchor.constraint(equalToConstant: 62).isActive = true
+
+        historyLimitStepper.minValue = Double(SettingsStore.allowedHistoryRange.lowerBound)
+        historyLimitStepper.maxValue = Double(SettingsStore.allowedHistoryRange.upperBound)
+        historyLimitStepper.increment = 1
+        historyLimitStepper.controlSize = .small
+        historyLimitStepper.target = self
+        historyLimitStepper.action = #selector(stepHistoryLimit)
+
+        launchAtLoginSwitch.target = self
+        launchAtLoginSwitch.action = #selector(toggleLaunchAtLogin)
+        autoUpdateSwitch.target = self
+        autoUpdateSwitch.action = #selector(toggleAutoUpdate)
+
+        updateStatusLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        updateStatusLabel.textColor = .secondaryLabelColor
+        updateStatusLabel.lineBreakMode = .byWordWrapping
+        updateStatusLabel.maximumNumberOfLines = 2
+    }
+
     private func record(_ event: NSEvent) {
         if event.keyCode == UInt16(kVK_Escape) {
             stopRecording()
@@ -719,6 +764,8 @@ final class SettingsViewController: NSViewController {
 
         guard let hotKey = HotKey(event: event) else {
             recordingHintLabel.stringValue = "请至少包含一个修饰键"
+            recordingHintLabel.textColor = .systemOrange
+            recordingHintLabel.isHidden = false
             return
         }
 
@@ -732,6 +779,11 @@ final class SettingsViewController: NSViewController {
         onMaxHistoryItemsChange(clamped)
     }
 
+    private func updateAutoUpdateState(_ enabled: Bool) {
+        autoUpdateSwitch.state = enabled ? .on : .off
+        autoUpdateStatusPill.setText(enabled ? "已开启" : "未开启", style: enabled ? .success : .disabled)
+    }
+
     private func configureSlider(_ slider: NSSlider, min: Double, max: Double, action: Selector) {
         slider.minValue = min
         slider.maxValue = max
@@ -740,111 +792,297 @@ final class SettingsViewController: NSViewController {
         slider.action = action
         slider.controlSize = .small
         slider.translatesAutoresizingMaskIntoConstraints = false
-        slider.widthAnchor.constraint(equalToConstant: 185).isActive = true
+        slider.widthAnchor.constraint(equalToConstant: 156).isActive = true
     }
 
-    private func makeSliderRow(title: String, slider: NSSlider, valueLabel: NSTextField) -> NSView {
-        let titleLabel = label(title, weight: .medium)
-        valueLabel.alignment = .right
-        valueLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-        valueLabel.textColor = .secondaryLabelColor
-        valueLabel.widthAnchor.constraint(equalToConstant: 54).isActive = true
+    private func makeHeaderView() -> NSView {
+        let iconView = NSImageView(image: appIconImage())
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.wantsLayer = true
+        iconView.layer?.shadowColor = NSColor.black.cgColor
+        iconView.layer?.shadowOpacity = 0.22
+        iconView.layer?.shadowRadius = 8
+        iconView.layer?.shadowOffset = CGSize(width: 0, height: -2)
 
-        let row = NSStackView(views: [titleLabel, slider, valueLabel])
+        let titleLabel = label("GlobalClipboard", size: 18, weight: .semibold)
+        titleLabel.textColor = .labelColor
+
+        let subtitleLabel = label("全局剪贴板历史 · \(appVersionString)", size: 12, weight: .regular)
+        subtitleLabel.textColor = .secondaryLabelColor
+
+        let textStack = NSStackView(views: [titleLabel, subtitleLabel])
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 3
+
+        let header = NSStackView(views: [iconView, textStack])
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.spacing = 14
+        header.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            iconView.widthAnchor.constraint(equalToConstant: 54),
+            iconView.heightAnchor.constraint(equalToConstant: 54),
+            header.heightAnchor.constraint(greaterThanOrEqualToConstant: 58)
+        ])
+
+        return header
+    }
+
+    private func makeSliderRow(title: String, slider: NSSlider, valuePill: SettingsPillView) -> NSView {
+        let controls = makeHorizontalControls([slider, valuePill], spacing: 10)
+        return makeSettingsRow(title: title, control: controls)
+    }
+
+    private func makeHistoryLimitRow() -> NSView {
+        let unitLabel = label("条", size: 12, weight: .regular)
+        unitLabel.textColor = .secondaryLabelColor
+        let controls = makeHorizontalControls([historyLimitField, unitLabel, historyLimitStepper], spacing: 6)
+        return makeSettingsRow(title: "历史上限", control: controls)
+    }
+
+    private func makeSettingsRow(title: String, control: NSView) -> NSView {
+        let titleLabel = label(title, size: 13, weight: .medium)
+        titleLabel.textColor = .labelColor
+        titleLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let row = NSStackView(views: [titleLabel, spacer, control])
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = 10
+        row.spacing = 12
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.heightAnchor.constraint(greaterThanOrEqualToConstant: 30).isActive = true
         return row
+    }
+
+    private func makeHorizontalControls(_ views: [NSView], spacing: CGFloat = 8) -> NSStackView {
+        let stack = NSStackView(views: views)
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = spacing
+        stack.setContentHuggingPriority(.required, for: .horizontal)
+        stack.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return stack
     }
 
     private func makeSection(
         title: String,
+        symbolName: String,
         views: [NSView],
         trailingView: NSView? = nil,
         onHoverChange: ((Bool) -> Void)? = nil
-    ) -> NSView {
-        let titleLabel = label(title, weight: .semibold)
-        titleLabel.textColor = .labelColor
-
-        let headerRow = NSStackView(views: [titleLabel])
-        headerRow.orientation = .horizontal
-        headerRow.alignment = .centerY
-        headerRow.spacing = 8
-        headerRow.translatesAutoresizingMaskIntoConstraints = false
-
-        if let trailingView {
-            let spacer = NSView()
-            spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            headerRow.addArrangedSubview(spacer)
-            headerRow.addArrangedSubview(trailingView)
-        }
-
-        let stack = NSStackView(views: [headerRow] + views)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        let container: NSView
-        if let onHoverChange {
-            let hoverContainer = HoverTrackingView()
-            hoverContainer.onHoverChange = onHoverChange
-            container = hoverContainer
-        } else {
-            container = NSView()
-        }
-        container.wantsLayer = true
-        container.layer?.cornerRadius = 12
-        container.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.62).cgColor
-        container.layer?.borderWidth = 1
-        container.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.35).cgColor
-        container.addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -14),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
-            headerRow.widthAnchor.constraint(equalTo: stack.widthAnchor)
-        ])
-
-        return container
+    ) -> SettingsSectionView {
+        SettingsSectionView(
+            title: title,
+            symbolName: symbolName,
+            views: views,
+            trailingView: trailingView,
+            onHoverChange: onHoverChange
+        )
     }
 
-    private func makeCommandButton(title: String, symbolName: String) -> NSButton {
+    private func makeActionButton(title: String, symbolName: String, role: ButtonRole) -> NSButton {
         let button = NSButton(title: title, target: nil, action: nil)
-        configureCommandButton(button, title: title, symbolName: symbolName)
+        configureActionButton(button, title: title, symbolName: symbolName, role: role)
         return button
     }
 
-    private func makeInlineCommandButton(title: String, symbolName: String) -> NSButton {
-        let button = NSButton(title: title, target: nil, action: nil)
-        button.bezelStyle = .rounded
-        button.controlSize = .small
-        button.font = .systemFont(ofSize: 12, weight: .regular)
-        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
-        button.imagePosition = .imageLeading
-        button.alignment = .center
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.heightAnchor.constraint(equalToConstant: 24).isActive = true
-        return button
-    }
-
-    private func configureCommandButton(_ button: NSButton, title: String, symbolName: String) {
+    private func configureActionButton(_ button: NSButton, title: String, symbolName: String, role: ButtonRole) {
         button.title = title
         button.bezelStyle = .rounded
+        button.controlSize = .small
+        button.font = .systemFont(ofSize: 12, weight: role == .primary ? .semibold : .regular)
         button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
         button.imagePosition = .imageLeading
         button.alignment = .center
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        if !button.constraints.contains(where: { $0.firstAttribute == .height }) {
+            button.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        }
+
+        switch role {
+        case .primary:
+            button.contentTintColor = .controlAccentColor
+        case .secondary:
+            button.contentTintColor = .secondaryLabelColor
+        case .link:
+            button.contentTintColor = .controlAccentColor.withAlphaComponent(0.9)
+        case .danger:
+            button.contentTintColor = .systemRed
+        }
     }
 
-    private func label(_ title: String, weight: NSFont.Weight = .regular) -> NSTextField {
+    private var appVersionString: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        return "v\(version)"
+    }
+
+    private func appIconImage() -> NSImage {
+        if
+            let path = Bundle.main.path(forResource: "AppIcon", ofType: "icns"),
+            let image = NSImage(contentsOfFile: path)
+        {
+            return image
+        }
+
+        return NSApp.applicationIconImage
+    }
+
+    private func label(_ title: String, size: CGFloat, weight: NSFont.Weight) -> NSTextField {
         let label = NSTextField(labelWithString: title)
-        label.font = .systemFont(ofSize: 13, weight: weight)
+        label.font = .systemFont(ofSize: size, weight: weight)
+        label.lineBreakMode = .byTruncatingTail
         return label
+    }
+}
+
+final class SettingsSectionView: HoverTrackingView {
+    init(
+        title: String,
+        symbolName: String,
+        views: [NSView],
+        trailingView: NSView?,
+        onHoverChange: ((Bool) -> Void)?
+    ) {
+        super.init(frame: .zero)
+
+        self.onHoverChange = onHoverChange
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.cornerRadius = 17
+        layer?.backgroundColor = NSColor(white: 1, alpha: 0.075).cgColor
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor(white: 1, alpha: 0.10).cgColor
+
+        let symbol = NSImageView(image: NSImage(systemSymbolName: symbolName, accessibilityDescription: title) ?? NSImage())
+        symbol.imageScaling = .scaleProportionallyDown
+        symbol.contentTintColor = .secondaryLabelColor
+        symbol.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = NSTextField(labelWithString: title)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.textColor = .labelColor
+
+        let headerSpacer = NSView()
+        headerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        headerSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let headerViews: [NSView] = trailingView == nil
+            ? [symbol, titleLabel, headerSpacer]
+            : [symbol, titleLabel, headerSpacer, trailingView!]
+        let header = NSStackView(views: headerViews)
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.spacing = 7
+        header.translatesAutoresizingMaskIntoConstraints = false
+
+        let bodyStack = NSStackView()
+        bodyStack.orientation = .vertical
+        bodyStack.alignment = .leading
+        bodyStack.spacing = 9
+        bodyStack.translatesAutoresizingMaskIntoConstraints = false
+
+        views.forEach { view in
+            view.translatesAutoresizingMaskIntoConstraints = false
+            bodyStack.addArrangedSubview(view)
+            view.widthAnchor.constraint(equalTo: bodyStack.widthAnchor).isActive = true
+        }
+
+        let stack = NSStackView(views: [header, bodyStack])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            symbol.widthAnchor.constraint(equalToConstant: 15),
+            symbol.heightAnchor.constraint(equalToConstant: 15),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
+            header.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            bodyStack.widthAnchor.constraint(equalTo: stack.widthAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
+final class SettingsPillView: NSView {
+    enum Style {
+        case neutral
+        case accent
+        case success
+        case disabled
+    }
+
+    private let textLabel = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.cornerRadius = 11
+        layer?.masksToBounds = true
+
+        textLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        textLabel.alignment = .center
+        textLabel.lineBreakMode = .byTruncatingTail
+        textLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(textLabel)
+
+        NSLayoutConstraint.activate([
+            textLabel.topAnchor.constraint(equalTo: topAnchor, constant: 3),
+            textLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            textLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            textLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 22)
+        ])
+
+        setText("", style: .neutral)
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let labelSize = textLabel.intrinsicContentSize
+        return NSSize(width: max(48, labelSize.width + 16), height: 22)
+    }
+
+    func setText(_ text: String, style: Style) {
+        textLabel.stringValue = text
+
+        switch style {
+        case .neutral:
+            textLabel.textColor = .secondaryLabelColor
+            layer?.backgroundColor = NSColor(white: 1, alpha: 0.09).cgColor
+        case .accent:
+            textLabel.textColor = .controlAccentColor
+            layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.18).cgColor
+        case .success:
+            textLabel.textColor = .systemGreen
+            layer?.backgroundColor = NSColor.systemGreen.withAlphaComponent(0.18).cgColor
+        case .disabled:
+            textLabel.textColor = .tertiaryLabelColor
+            layer?.backgroundColor = NSColor(white: 1, alpha: 0.07).cgColor
+        }
+
+        invalidateIntrinsicContentSize()
     }
 }
 
@@ -854,7 +1092,7 @@ final class SettingsRootView: NSVisualEffectView {
     }
 }
 
-final class HoverTrackingView: NSView {
+class HoverTrackingView: NSView {
     var onHoverChange: ((Bool) -> Void)?
     private var trackingAreaRef: NSTrackingArea?
     private var isHovering = false

@@ -140,6 +140,7 @@ struct BoardLayer {
 let boardWidth: CGFloat = 452
 let boardHeight: CGFloat = 534
 let boardRadius: CGFloat = 70
+let boardYOffset: CGFloat = -38
 let layers = [
     BoardLayer(dx: -58, dy: 52, scale: 0.92, alpha: 0.50),
     BoardLayer(dx: -26, dy: 24, scale: 0.96, alpha: 0.72),
@@ -157,7 +158,7 @@ for (index, layer) in layers.enumerated() {
     let h = boardHeight * layer.scale
     let rect = CGRect(
         x: center.x - w / 2 + layer.dx,
-        y: center.y - h / 2 + layer.dy - 10,
+        y: center.y - h / 2 + layer.dy + boardYOffset,
         width: w,
         height: h
     )
