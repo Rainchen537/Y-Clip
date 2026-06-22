@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <!--
-      全局剪切板 — hardened runtime entitlements
+      Y-Clip — hardened runtime entitlements
 
       本 app 的能力全部依赖「辅助功能」运行时授权，无需在此声明：
         · 自动粘贴：CGEvent 键盘事件注入（PasteController）

@@ -1,11 +1,13 @@
 #!/bin/zsh
 set -euo pipefail
 
-APP_NAME="Global Clipboard"
+APP_NAME="Y-Clip"
+LEGACY_APP_NAME="Global Clipboard"
 EXECUTABLE_NAME="GlobalClipboard"
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$ROOT_DIR/build"
 FINAL_APP_DIR="$BUILD_DIR/$APP_NAME.app"
+LEGACY_APP_DIR="$BUILD_DIR/$LEGACY_APP_NAME.app"
 TMP_PARENT="${TMPDIR:-/tmp}"
 TMP_BUILD_DIR="$(mktemp -d "$TMP_PARENT/global-clipboard-build.XXXXXX")"
 APP_DIR="$TMP_BUILD_DIR/$APP_NAME.app"
@@ -85,6 +87,9 @@ else
 fi
 
 rm -rf "$FINAL_APP_DIR"
+if [[ "$LEGACY_APP_DIR" != "$FINAL_APP_DIR" ]]; then
+  rm -rf "$LEGACY_APP_DIR"
+fi
 mkdir -p "$BUILD_DIR"
 ditto --noextattr --noqtn "$APP_DIR" "$FINAL_APP_DIR"
 

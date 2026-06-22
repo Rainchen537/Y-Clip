@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/icon-256.png" width="128" alt="全局剪切板 图标" />
+<img src="docs/icon-256.png" width="128" alt="Y-Clip 图标" />
 
-# 全局剪切板 · Global Clipboard
+# Y-Clip
 
 **把 Windows `Win + V` 的剪贴板历史体验，原生搬到 macOS。**
 
@@ -37,8 +37,8 @@
 
 ### 方式一：下载安装包（推荐）
 
-1. 前往 [**Releases**](../../releases/latest) 下载最新的 `全局剪切板.dmg`
-2. 双击打开，把 **Global Clipboard** 拖进 **应用程序** 文件夹
+1. 前往 [**Releases**](../../releases/latest) 下载最新的 `Y-Clip.dmg`
+2. 双击打开，把 **Y-Clip** 拖进 **应用程序** 文件夹
 3. 从启动台或应用程序文件夹打开即可
 
 > ✅ 本应用已使用 Apple **Developer ID 签名并公证（notarized）**，下载后双击即可打开，**不会出现「无法验证开发者」或「已损坏」的拦截**。
@@ -50,7 +50,7 @@
 ```zsh
 git clone https://github.com/Rainchen537/global-clipboard.git
 cd global-clipboard
-./build.sh                 # 构建到 build/Global Clipboard.app
+./build.sh                 # 构建到 build/Y-Clip.app
 ./install_app.sh           # 安装到 /Applications
 ```
 
@@ -58,7 +58,7 @@ cd global-clipboard
 
 首次选择历史记录自动粘贴时，macOS 会要求开启 **「辅助功能」** 权限 —— 这是模拟 `⌘ + V` 粘贴所必需的，所有同类工具都一样。
 
-> 系统设置 → 隐私与安全性 → 辅助功能 → 勾选 **Global Clipboard**
+> 系统设置 → 隐私与安全性 → 辅助功能 → 勾选 **Y-Clip**
 
 - 如果没有自动弹出，可从菜单栏图标的设置里点 **「辅助功能」** 按钮打开。
 - 没有授予权限时，应用仍会把选中内容复制回系统剪贴板，只是不会替你自动粘贴（需要你手动 `⌘V`）。
@@ -84,7 +84,7 @@ cd global-clipboard
 - 全局热键：Carbon `RegisterEventHotKey`
 - 自动粘贴：`CGEvent` 键盘事件注入
 - 开机自启：`SMAppService`
-- 数据：文字与图片元数据存于 `~/Library/Application Support/GlobalClipboard/`，图片原图单独落盘并按内容去重
+- 数据：文字与图片元数据仍存于 `~/Library/Application Support/GlobalClipboard/`，用于保持从旧版升级后的历史记录兼容；图片原图单独落盘并按内容去重
 
 ## 📄 许可
 

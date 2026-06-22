@@ -15,3 +15,6 @@ icon/dmg_preview.png
 
 # 本地公证/签名临时文件
 *.zip
+
+# 本地维护日志，不上传 GitHub
+UPDATE_LOG.local.md

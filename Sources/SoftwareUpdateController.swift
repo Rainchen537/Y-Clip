@@ -136,7 +136,7 @@ final class SoftwareUpdateController {
 
             do {
                 let destination = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("GlobalClipboardUpdate-\(UUID().uuidString).dmg")
+                    .appendingPathComponent("YClipUpdate-\(UUID().uuidString).dmg")
                 try FileManager.default.moveItem(at: temporaryURL, to: destination)
                 DispatchQueue.main.async {
                     self?.onStatusChange?(.installing("正在安装并重启…"))
@@ -153,17 +153,21 @@ final class SoftwareUpdateController {
     private func installAndRestart(from dmgURL: URL) {
         do {
             let scriptURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("install-global-clipboard-\(UUID().uuidString).zsh")
+                .appendingPathComponent("install-y-clip-\(UUID().uuidString).zsh")
             let script = """
             #!/bin/zsh
             set -euo pipefail
             DMG="$1"
-            DEST="/Applications/Global Clipboard.app"
+            DEST="/Applications/Y-Clip.app"
+            LEGACY_DEST="/Applications/Global Clipboard.app"
             EXEC="GlobalClipboard"
             BUNDLE_ID="com.lixingchen.GlobalClipboard"
             LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
             MOUNT="$(hdiutil attach "$DMG" -nobrowse -noautoopen | awk '/\\/Volumes\\// { for (i=3; i<=NF; i++) { printf "%s%s", (i==3 ? "" : " "), $i } print ""; exit }')"
-            APP="$MOUNT/Global Clipboard.app"
+            APP="$MOUNT/Y-Clip.app"
+            if [[ ! -d "$APP" ]]; then
+              APP="$MOUNT/Global Clipboard.app"
+            fi
             while pgrep -x "$EXEC" >/dev/null 2>&1; do
               sleep 0.2
             done
@@ -175,6 +179,10 @@ final class SoftwareUpdateController {
             ditto "$APP" "$DEST"
             xattr -cr "$DEST"
             codesign --verify --strict --verbose=2 "$DEST" >/dev/null
+            if [[ "$LEGACY_DEST" != "$DEST" && -d "$LEGACY_DEST" ]]; then
+              find "$LEGACY_DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+              rmdir "$LEGACY_DEST" 2>/dev/null || true
+            fi
             [[ -x "$LSREGISTER" ]] && "$LSREGISTER" -f "$DEST" >/dev/null 2>&1 || true
             touch "$DEST"
             hdiutil detach "$MOUNT" >/dev/null 2>&1 || hdiutil detach "$MOUNT" -force >/dev/null 2>&1 || true

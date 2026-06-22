@@ -2,11 +2,12 @@
 set -euo pipefail
 
 # 打包可分发的 DMG：标准拖拽安装窗口（App 图标 → 应用程序文件夹）。
-# 依赖：已先执行 ./build.sh 生成 build/Global Clipboard.app
+# 依赖：已先执行 ./build.sh 生成 build/Y-Clip.app
 # 用法：./make_dmg.sh
 
-APP_NAME="Global Clipboard"
-VOL_NAME="全局剪切板"
+APP_NAME="Y-Clip"
+LEGACY_APP_NAME="Global Clipboard"
+VOL_NAME="Y-Clip"
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_PATH="$ROOT_DIR/build/$APP_NAME.app"
 BG_SRC="$ROOT_DIR/icon/dmg_bg.png"
@@ -42,6 +43,10 @@ mkdir -p "$STAGE_DIR"
 
 # 1) 准备暂存目录内容：app + Applications 软链接 + 背景图
 cp -R "$APP_PATH" "$STAGE_DIR/"
+if [[ "$APP_NAME" != "$LEGACY_APP_NAME" ]]; then
+  ditto "$APP_PATH" "$STAGE_DIR/$LEGACY_APP_NAME.app"
+  chflags hidden "$STAGE_DIR/$LEGACY_APP_NAME.app" 2>/dev/null || true
+fi
 ln -s /Applications "$STAGE_DIR/Applications"
 mkdir -p "$STAGE_DIR/.background"
 if [[ -f "$BG_SRC" ]]; then

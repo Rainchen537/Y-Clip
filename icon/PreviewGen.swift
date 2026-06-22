@@ -53,7 +53,7 @@ func label(_ s: String, centerXTop: Double, belowIconCenterYTop: Double) {
 if let appIcon = NSImage(contentsOfFile: appIconPath) {
     appIcon.draw(in: place(centerXTop: 165, centerYTop: 200))
 }
-label("Global Clipboard.app", centerXTop: 165, belowIconCenterYTop: 200)
+label("Y-Clip.app", centerXTop: 165, belowIconCenterYTop: 200)
 
 // Applications 文件夹图标（位置 {475,200}），用系统文件夹图标
 let folderIcon = NSWorkspace.shared.icon(forFile: "/Applications")

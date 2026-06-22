@@ -13,9 +13,9 @@
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Global Clipboard</string>
+    <string>Y-Clip</string>
     <key>CFBundleDisplayName</key>
-    <string>全局剪切板</string>
+    <string>Y-Clip</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

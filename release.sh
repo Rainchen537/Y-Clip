@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # 一键发布：Developer ID 签名构建 → 打包 DMG → 公证 → 装订 → 验证
-# 产出可双击直接打开的 dist/全局剪切板.dmg
+# 产出可双击直接打开的 dist/Y-Clip.dmg
 #
 # 前置（只需做一次）：把公证凭据存入钥匙串，存成一个 profile：
 #
@@ -15,8 +15,8 @@ set -euo pipefail
 # 密码不会出现在本脚本或命令历史里。
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_NAME="Global Clipboard"
-VOL_NAME="全局剪切板"
+APP_NAME="Y-Clip"
+VOL_NAME="Y-Clip"
 APP_PATH="$ROOT_DIR/build/$APP_NAME.app"
 DMG_PATH="$ROOT_DIR/dist/$VOL_NAME.dmg"
 
@@ -127,4 +127,3 @@ bold "✅ 发布完成！"
 echo "可分发文件：$DMG_PATH"
 echo "别人下载后双击即可打开，无安全拦截。"
 ls -lh "$DMG_PATH"
-

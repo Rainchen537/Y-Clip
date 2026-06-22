@@ -289,7 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if wasTrustedBefore {
             alert.messageText = "辅助功能权限需要刷新"
-            alert.informativeText = "macOS 在应用更新后有时会保留旧的辅助功能记录，导致系统设置里看起来已开启，但当前版本实际无法发送粘贴快捷键。可以先刷新这条记录，再重新勾选 Global Clipboard。"
+            alert.informativeText = "macOS 在应用更新后有时会保留旧的辅助功能记录，导致系统设置里看起来已开启，但当前版本实际无法发送粘贴快捷键。可以先刷新这条记录，再重新勾选 Y-Clip。"
             alert.addButton(withTitle: "刷新权限记录")
             alert.addButton(withTitle: "打开系统设置")
             alert.addButton(withTitle: "稍后")

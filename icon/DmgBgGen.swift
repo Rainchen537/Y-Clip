@@ -46,7 +46,7 @@ func draw(_ s: String, _ font: NSFont, _ color: NSColor, centerX: CGFloat, y: CG
 }
 
 // 标题
-draw("全局剪切板", NSFont.systemFont(ofSize: 30 * scale, weight: .semibold),
+draw("Y-Clip", NSFont.systemFont(ofSize: 30 * scale, weight: .semibold),
      NSColor(white: 0.97, alpha: 1.0), centerX: w / 2, y: h - 78 * scale)
 draw("将左侧应用拖入右侧「应用程序」文件夹即可安装",
      NSFont.systemFont(ofSize: 14 * scale, weight: .regular),

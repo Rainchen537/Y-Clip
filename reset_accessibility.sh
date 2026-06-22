@@ -8,4 +8,4 @@ pkill -x "$APP_NAME" 2>/dev/null || true
 tccutil reset Accessibility "$BUNDLE_ID"
 
 echo "已重置 $BUNDLE_ID 的辅助功能权限。"
-echo "请重新打开 build/Global Clipboard.app，然后在系统设置里重新允许 Global Clipboard。"
+echo "请重新打开 build/Y-Clip.app，然后在系统设置里重新允许 Y-Clip。"

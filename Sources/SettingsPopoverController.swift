@@ -805,7 +805,7 @@ final class SettingsViewController: NSViewController {
         iconView.layer?.shadowRadius = 8
         iconView.layer?.shadowOffset = CGSize(width: 0, height: -2)
 
-        let titleLabel = label("GlobalClipboard", size: 18, weight: .semibold)
+        let titleLabel = label("Y-Clip", size: 18, weight: .semibold)
         titleLabel.textColor = .labelColor
 
         let subtitleLabel = label("全局剪贴板历史 · \(appVersionString)", size: 12, weight: .regular)
