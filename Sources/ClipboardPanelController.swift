@@ -222,6 +222,8 @@ final class HistoryRowView: NSView {
 }
 
 final class ClipboardPanelController {
+    private static let scrollMemoryDuration: TimeInterval = 180
+
     private let panel: ClipboardHistoryPanel
     private let rootView = NSVisualEffectView()
     private let scrollView = NSScrollView()
@@ -237,6 +239,8 @@ final class ClipboardPanelController {
     private var outsideClickMonitor: Any?
     private var scrollObserver: Any?
     private var metrics: HistoryPanelMetrics = .default
+    private var lastItemsSignature: [String] = []
+    private var lastScrollMemoryDate: Date?
     /// 由外部注入：给定图片项，返回其全图文件 URL（用于生成缩略图）。
     var imageURLProvider: ((ImagePayload) -> URL)?
     var onOpenSettings: ((NSView) -> Void)?
@@ -334,11 +338,15 @@ final class ClipboardPanelController {
         onChoose: @escaping (ClipboardItem) -> Void,
         onClose: @escaping () -> Void
     ) {
+        let itemsSignature = Self.signature(for: items)
+        let shouldResetScroll = shouldResetScroll(for: itemsSignature)
+
         self.items = items
         self.metrics = metrics
         self.onChoose = onChoose
         self.onClose = onClose
         selectedIndex = items.isEmpty ? -1 : 0
+        lastItemsSignature = itemsSignature
 
         updateMetrics()
         renderRows()
@@ -347,6 +355,9 @@ final class ClipboardPanelController {
         panel.setFrame(positionedFrame(size: panelSize, near: point), display: true)
 
         panel.makeKeyAndOrderFront(nil)
+        if shouldResetScroll {
+            scrollToTop()
+        }
         beginOutsideClickMonitoring()
         beginHoverTracking()
     }
@@ -363,6 +374,7 @@ final class ClipboardPanelController {
     }
 
     func close() {
+        rememberScrollPosition()
         endOutsideClickMonitoring()
         endHoverTracking()
         panel.orderOut(nil)
@@ -538,10 +550,49 @@ final class ClipboardPanelController {
         }
 
         let item = items[index]
+        rememberScrollPosition()
         endOutsideClickMonitoring()
         endHoverTracking()
         panel.orderOut(nil)
         onChoose?(item)
+    }
+
+    private func shouldResetScroll(for itemsSignature: [String]) -> Bool {
+        guard itemsSignature == lastItemsSignature else {
+            return true
+        }
+
+        guard let lastScrollMemoryDate else {
+            return true
+        }
+
+        return Date().timeIntervalSince(lastScrollMemoryDate) > Self.scrollMemoryDuration
+    }
+
+    private func rememberScrollPosition() {
+        lastScrollMemoryDate = Date()
+    }
+
+    private func scrollToTop() {
+        rootView.layoutSubtreeIfNeeded()
+        stackView.layoutSubtreeIfNeeded()
+
+        guard let documentView = scrollView.documentView else {
+            return
+        }
+
+        let clipView = scrollView.contentView
+        let y = documentView.isFlipped
+            ? CGFloat(0)
+            : max(0, documentView.bounds.height - clipView.bounds.height)
+        clipView.scroll(to: NSPoint(x: 0, y: y))
+        scrollView.reflectScrolledClipView(clipView)
+    }
+
+    private static func signature(for items: [ClipboardItem]) -> [String] {
+        items.map { item in
+            "\(item.id.uuidString)|\(item.dedupeKey)"
+        }
     }
 
     private func fittedPanelSize(for itemCount: Int, near point: NSPoint) -> NSSize {
