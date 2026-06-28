@@ -1,0 +1,37 @@
+# Y-Clip AI Changelog
+
+本文件记录 Y-Clip 面向 AI/维护者的工作流水。每次功能、修复、发布、发布事故处理或维护规范调整后追加记录。不要在这里记录 token、证书密码、Apple ID、notary 密码等敏感信息。
+
+旧的 `UPDATE_LOG.local.md` 内容已迁移到本文件，后续维护记录统一写这里。
+
+## 2026-06-28
+
+- 接入 `Y-Framework/Setting` 共享设置页面框架。
+- 在仓库内 vendored `Y-Framework/Setting/YSettingsFramework.swift`，避免单独 clone GitHub 仓库时缺少父级共享框架。
+- 将菜单栏入口改为简单菜单：打开设置、更多 Y-Project 占位和退出项。
+- 将原菜单栏 popover 设置页重构为独立设置窗口，采用左侧 sidebar + 右侧内容区结构。
+- 拆出 `ClipboardPreviewView.swift`，保留剪贴板面板设置的旁侧预览；设置窗口左右两侧哪边空间足够就显示在哪边。
+- 更新 `build.sh`，编译时加入仓库内 `Y-Framework/Setting/*.swift`，并保留父级共享框架回退路径。
+- 准备发布 `v1.0.13`，版本号更新为 `CFBundleShortVersionString=1.0.13`、`CFBundleVersion=14`，并新增用户可见 `CHANGELOG.md`。
+- 发布 `v1.0.13` 的签名、公证、staple 后 DMG，SHA256：`4bc5fe2fd8f6bb922677497917c26e2db0496c7e9d61cb6ead3905a8f9f3e32b`。
+
+## 2026-06-27
+
+- 统一为 Y-Project 标准 AI 维护结构：`AI_CONTEXT.me` 负责工作规范和项目说明，`CHANGELOG.me` 负责维护更新记录。
+- 在 `AI_CONTEXT.me` 中引用根目录 `Y_PROJECT_APP_STANDARD.me`，并补充 GitHub MCP / GitHub App release、签名公证、本机安装验证等通用要求。
+
+## 2026-06-24
+
+- 修复剪贴板历史面板在超时或新内容后回到顶部时可能停在空白区域的问题。现在会按第一条真实内容计算顶部滚动位置，并在 panel 显示后的下一轮布局再次校准。
+- 进一步定位到普通 `NSStackView` 作为 scroll document view 时会产生负 y frame，导致滚动条看似在顶部但内容不在可视区；历史列表改用顶部原点的 `TopAlignedStackView`。
+- 发布 `v1.0.12`，DMG SHA256：`034e3d3c8d80c172c31204eab3f1bb3b3df79229d95e564538ec0ea4ecaa9904`。
+
+## 2026-06-22
+
+- 将对外软件名从 Global Clipboard 改为 Y-Clip。
+- 保留内部 Bundle ID `com.lixingchen.GlobalClipboard`、可执行名 `GlobalClipboard` 和历史数据目录，避免影响辅助功能权限、自动更新和历史记录。
+- 保留新的菜单栏线性描边小图标。
+- 规划 DMG 内隐藏 `Global Clipboard.app` 兼容副本，兼容旧版自动更新器。
+- 构建脚本会清理 `build/Global Clipboard.app` 旧名残留，只保留 `build/Y-Clip.app`。
+- 新增 `AI_CONTEXT.me`，记录项目介绍、构建流程、发布流程和本地更新日志约定。
+- 发现本机启动台仍显示旧名时，实际是 `/Applications` 仍安装旧包；已安装新版，并让 `install_app.sh` 安装后刷新 LaunchServices。

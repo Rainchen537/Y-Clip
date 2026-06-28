@@ -58,6 +58,16 @@ if [[ -f "$ROOT_DIR/icon/AppIcon.icns" ]]; then
   cp "$ROOT_DIR/icon/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 fi
 
+FRAMEWORK_DIR="$ROOT_DIR/Y-Framework/Setting"
+if [[ ! -d "$FRAMEWORK_DIR" ]]; then
+  FRAMEWORK_DIR="$ROOT_DIR/../Y-Framework/Setting"
+fi
+FRAMEWORK_SOURCES=("$FRAMEWORK_DIR"/*.swift(N))
+if (( ${#FRAMEWORK_SOURCES[@]} == 0 )); then
+  echo "错误：找不到 Y-Framework/Setting Swift 源文件。" >&2
+  exit 1
+fi
+
 xcrun swiftc \
   -swift-version 5 \
   -target arm64-apple-macosx13.0 \
@@ -66,6 +76,7 @@ xcrun swiftc \
   -framework ApplicationServices \
   -framework ServiceManagement \
   -O \
+  "${FRAMEWORK_SOURCES[@]}" \
   "$ROOT_DIR"/Sources/*.swift \
   -o "$MACOS_DIR/$EXECUTABLE_NAME"
 

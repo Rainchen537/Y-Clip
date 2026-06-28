@@ -22,11 +22,12 @@ DMG_PATH="$ROOT_DIR/dist/$VOL_NAME.dmg"
 
 # 公证凭据 profile 名（可用环境变量覆盖）
 NOTARY_PROFILE="${NOTARY_PROFILE:-GlobalClipboardNotary}"
+SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-}"
 
 bold() { print -P "%B$1%b"; }
 
-# ---- 0) 预检：凭据 profile 是否存在 ----
-bold "▶ 0/6 检查公证凭据…"
+# ---- 0) 预检：凭据 profile 和签名证书是否存在 ----
+bold "▶ 0/7 检查公证凭据和签名证书…"
 if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
   cat >&2 <<EOF
 ✗ 找不到公证凭据 profile：$NOTARY_PROFILE
@@ -44,9 +45,19 @@ EOF
 fi
 echo "  ✓ 凭据就绪：$NOTARY_PROFILE"
 
+if [[ -z "$SIGN_IDENTITY" ]]; then
+  SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+    | awk -F '"' '/Developer ID Application/ { print $2; exit }')"
+fi
+if [[ -z "$SIGN_IDENTITY" ]]; then
+  echo "✗ 找不到 Developer ID Application 证书。" >&2
+  exit 1
+fi
+echo "  ✓ 签名证书就绪：$SIGN_IDENTITY"
+
 # ---- 1) 用 Developer ID + hardened runtime 构建签名 ----
-bold "▶ 1/6 构建并签名（Developer ID + hardened runtime）…"
-RELEASE=1 "$ROOT_DIR/build.sh"
+bold "▶ 1/7 构建并签名（Developer ID + hardened runtime）…"
+CODE_SIGN_IDENTITY="$SIGN_IDENTITY" RELEASE=1 "$ROOT_DIR/build.sh"
 
 # 验证签名确实是 Developer ID + runtime
 # 先把签名信息捕获到变量再匹配，避免 `codesign | grep -q` 因 grep 提前关闭管道
@@ -88,7 +99,7 @@ notarize() {
 }
 
 # ---- 2) 公证 app 本体并装订（zip 仅用于上传，装订回 .app）----
-bold "▶ 2/6 公证 app 本体…"
+bold "▶ 2/7 公证 app 本体…"
 APP_ZIP="$(mktemp -d)/app.zip"
 ditto -c -k --keepParent "$APP_PATH" "$APP_ZIP"
 notarize "$APP_ZIP" || exit 1
@@ -97,21 +108,27 @@ xcrun stapler staple "$APP_PATH"
 echo "  ✓ app 已公证并装订票据"
 
 # ---- 3) 用已装订的 app 打包 DMG ----
-bold "▶ 3/6 打包 DMG…"
+bold "▶ 3/7 打包 DMG…"
 "$ROOT_DIR/make_dmg.sh"
 
-# ---- 4) 公证 DMG ----
-bold "▶ 4/6 公证 DMG…"
+# ---- 4) 签名 DMG ----
+bold "▶ 4/7 签名 DMG…"
+codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG_PATH"
+codesign --verify --verbose=4 "$DMG_PATH"
+echo "  ✓ DMG 签名校验通过"
+
+# ---- 5) 公证 DMG ----
+bold "▶ 5/7 公证 DMG…"
 notarize "$DMG_PATH" || exit 1
 echo "  ✓ DMG 已公证"
 
-# ---- 5) 装订 DMG 票据（离线也能验证）----
-bold "▶ 5/6 装订 DMG 票据…"
+# ---- 6) 装订 DMG 票据（离线也能验证）----
+bold "▶ 6/7 装订 DMG 票据…"
 xcrun stapler staple "$DMG_PATH"
 echo "  ✓ 已装订"
 
-# ---- 6) 最终验证：挂载并以用户真实场景检验 app ----
-bold "▶ 6/6 验证最终产物…"
+# ---- 7) 最终验证：挂载并以用户真实场景检验 app ----
+bold "▶ 7/7 验证最终产物…"
 echo "  · DMG 装订校验："
 xcrun stapler validate "$DMG_PATH"
 

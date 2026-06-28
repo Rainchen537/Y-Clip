@@ -6,7 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let softwareUpdateController = SoftwareUpdateController()
     private let panelController = ClipboardPanelController()
     private var hotKeyController: HotKeyController?
-    private var settingsPopoverController: SettingsPopoverController?
+    private var settingsWindowController: SettingsWindowController?
     private var statusItem: NSStatusItem?
     private var focusContext: FocusContext?
     private var hasShownAccessibilityWarning = false
@@ -15,9 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
         historyStore.startMonitoring()
-        setupSettingsPopover()
+        setupSettingsWindow()
         softwareUpdateController.onStatusChange = { [weak self] status in
-            self?.settingsPopoverController?.updateUpdateStatus(status)
+            self?.settingsWindowController?.updateUpdateStatus(status)
         }
         registerHotKey(settingsStore.hotKey)
         scheduleAutomaticUpdateCheckIfNeeded()
@@ -32,9 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
-            let screenRect = screenRect(for: sourceView)
+            _ = sourceView
             panelController.close()
-            showSettingsPopover(near: screenRect, preferredEdge: .maxX)
+            openSettings()
         }
     }
 
@@ -46,14 +46,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = StatusBarIcon.makeImage()
         item.button?.imagePosition = .imageOnly
-        item.button?.target = self
-        item.button?.action = #selector(toggleSettingsPopover)
+        item.button?.toolTip = "Y-Clip"
+        item.menu = YProjectStatusMenu.make(
+            target: self,
+            openSettingsAction: #selector(openSettings),
+            quitAction: #selector(quit),
+            appName: "Y-Clip"
+        )
 
         statusItem = item
     }
 
-    private func setupSettingsPopover() {
-        settingsPopoverController = SettingsPopoverController(
+    private func setupSettingsWindow() {
+        settingsWindowController = SettingsWindowController(
             hotKey: settingsStore.hotKey,
             panelMetrics: settingsStore.panelMetrics,
             maxHistoryItems: settingsStore.maxHistoryItems,
@@ -94,48 +99,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    @objc private func toggleSettingsPopover() {
-        guard let button = statusItem?.button else {
-            return
-        }
-
-        showSettingsPopover(relativeTo: button, preferredEdge: .minY)
+    @objc private func openSettings() {
+        settingsWindowController?.show()
     }
 
-    private func showSettingsPopover(
-        relativeTo view: NSView,
-        preferredEdge: NSRectEdge
-    ) {
-        guard let settingsPopoverController else {
-            return
-        }
-
-        if settingsPopoverController.isShown {
-            settingsPopoverController.close()
-        } else {
-            settingsPopoverController.show(relativeTo: view, preferredEdge: preferredEdge)
-        }
-    }
-
-    private func showSettingsPopover(near screenRect: NSRect, preferredEdge: NSRectEdge) {
-        guard let settingsPopoverController else {
-            return
-        }
-
-        if settingsPopoverController.isShown {
-            settingsPopoverController.close()
-        } else {
-            settingsPopoverController.show(near: screenRect, preferredEdge: preferredEdge)
-        }
-    }
-
-    private func screenRect(for view: NSView) -> NSRect {
-        guard let window = view.window else {
-            let mouseLocation = NSEvent.mouseLocation
-            return NSRect(x: mouseLocation.x, y: mouseLocation.y, width: 1, height: 1)
-        }
-
-        return window.convertToScreen(view.convert(view.bounds, to: nil))
+    @objc private func quit() {
+        NSApp.terminate(nil)
     }
 
     private func registerHotKey(_ hotKey: HotKey) {
@@ -163,10 +132,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try hotKeyController.register(hotKey: hotKey)
             self.hotKeyController = hotKeyController
             settingsStore.hotKey = hotKey
-            settingsPopoverController?.updateHotKey(hotKey)
+            settingsWindowController?.updateHotKey(hotKey)
         } catch {
             registerHotKey(previousHotKey)
-            settingsPopoverController?.updateHotKey(previousHotKey)
+            settingsWindowController?.updateHotKey(previousHotKey)
             showAlert(
                 title: "快捷键不可用",
                 message: error.localizedDescription
@@ -177,9 +146,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setLaunchAtLogin(_ enabled: Bool) {
         do {
             try LaunchAtLoginController.setEnabled(enabled)
-            settingsPopoverController?.updateLaunchAtLogin(LaunchAtLoginController.isEnabled)
+            settingsWindowController?.updateLaunchAtLogin(LaunchAtLoginController.isEnabled)
         } catch {
-            settingsPopoverController?.updateLaunchAtLogin(LaunchAtLoginController.isEnabled)
+            settingsWindowController?.updateLaunchAtLogin(LaunchAtLoginController.isEnabled)
             showAlert(
                 title: "开机自启动设置失败",
                 message: error.localizedDescription
@@ -191,7 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let clamped = SettingsStore.clampedHistoryLimit(count)
         settingsStore.maxHistoryItems = clamped
         historyStore.maxItems = clamped
-        settingsPopoverController?.updateMaxHistoryItems(clamped)
+        settingsWindowController?.updateMaxHistoryItems(clamped)
     }
 
     private func scheduleAutomaticUpdateCheckIfNeeded() {
