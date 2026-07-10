@@ -37,7 +37,7 @@ final class SoftwareUpdateController {
         }
     }
 
-    private let latestReleaseURL = URL(string: "https://api.github.com/repos/Rainchen537/global-clipboard/releases/latest")!
+    private let latestReleaseURL = URL(string: "https://api.github.com/repos/Rainchen537/Y-Clip/releases/latest")!
     private var isChecking = false
     private var availableAssetURL: URL?
     var onStatusChange: ((SoftwareUpdateStatus) -> Void)?

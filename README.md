@@ -45,11 +45,13 @@
 
 ### 方式二：从源码构建
 
+GitHub 仓库：[Rainchen537/Y-Clip](https://github.com/Rainchen537/Y-Clip)
+
 需要安装 Xcode 命令行工具。
 
 ```zsh
-git clone https://github.com/Rainchen537/global-clipboard.git
-cd global-clipboard
+git clone https://github.com/Rainchen537/Y-Clip.git
+cd Y-Clip
 ./build.sh                 # 构建到 build/Y-Clip.app
 ./install_app.sh           # 安装到 /Applications
 ```

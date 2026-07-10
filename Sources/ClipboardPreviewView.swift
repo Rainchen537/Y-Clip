@@ -178,7 +178,7 @@ final class ClipboardPreviewView: NSView {
                 thumbnail: nil
             ),
             PreviewSample(
-                item: ClipboardItem(text: "https://github.com/Rainchen537/global-clipboard"),
+                item: ClipboardItem(text: "https://github.com/Rainchen537/Y-Clip"),
                 thumbnail: nil
             ),
             PreviewSample(
