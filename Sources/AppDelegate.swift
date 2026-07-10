@@ -92,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.showAccessibilityRepairOptions()
             },
             onOpenGitHub: {
-                if let url = URL(string: "https://github.com/Rainchen537/global-clipboard") {
+                if let url = URL(string: "https://github.com/Rainchen537/Y-Clip") {
                     NSWorkspace.shared.open(url)
                 }
             }
