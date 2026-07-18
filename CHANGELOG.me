@@ -16,7 +16,8 @@
 - `release.sh` 移除 Apple ID 字面量，改用环境变量和 notary profile 指引；打包前验证 App 的 stapled ticket，最终 DMG 挂载后验证可见 `Y-Clip.app` 与隐藏 `Global Clipboard.app` 兼容副本。
 - 共享设置框架增加屏幕可见区域约束和 sidebar identifier 校验；关于页补充产品身份。
 - 准备发布 `v1.0.14`，版本号为 `CFBundleShortVersionString=1.0.14`、`CFBundleVersion=15`，公开 changelog 日期为 `2026-07-18`。
-- 最终 Release URL、DMG SHA256，以及从最终 DMG 覆盖安装 `/Applications/Y-Clip.app` 后的验证结果，将在发布完成后追加；当前不预填尚未产生的值。
+- 完成 `v1.0.14` 发布闭环：源码提交 `3492950493a1aea1dd3d830c97a888f32e219d9f`、tag `v1.0.14`、Release `https://github.com/Rainchen537/Y-Clip/releases/tag/v1.0.14`；最终 `Y-Clip-v1.0.14.dmg` SHA256 为 `2bf907ade8bec760fc55708a3e55e5cc5aea856b8e85bf6b30b6d06c3200ff28`，GitHub asset digest 已核对一致。
+- 从上述最终 DMG 覆盖安装到 `/Applications/Y-Clip.app` 并通过 LaunchServices 启动；确认版本 `1.0.14 (15)`、Bundle ID `com.lixingchen.GlobalClipboard`、Developer ID 团队 `A94225N8T5`、hardened runtime、严格 codesign、App/DMG stapler 与 Gatekeeper 验证通过。安装版权限页截图确认“正式安装版”和辅助功能“已开启”，且只运行一个 `GlobalClipboard` 进程。
 
 ## 2026-07-13
 
