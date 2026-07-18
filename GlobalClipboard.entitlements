@@ -11,8 +11,8 @@
         · 事件监听：NSEvent 全局 monitor（ClipboardPanelController）
         · 开机自启：SMAppService（LaunchAtLoginController）
 
-      不使用 App Sandbox；无网络访问；不加载第三方动态库。
-      因此保持最小集即可，不启用任何削弱 hardened runtime 的项，
+      不使用 App Sandbox；自动更新器仅通过网络访问 GitHub Release；不加载第三方动态库。
+      网络访问在非沙盒 App 中不需要额外 entitlement。保持最小集即可，不启用任何削弱 hardened runtime 的项，
       以获得最顺畅的公证（notarization）结果。
     -->
 </dict>

@@ -1,10 +1,146 @@
 import AppKit
+import Security
 
 struct YSettingAppDescriptor {
     let displayName: String
     let subtitle: String
     let version: String
     let icon: NSImage
+}
+
+enum YSettingRuntimeIdentity {
+    private struct RelaunchError: LocalizedError {
+        let message: String
+
+        var errorDescription: String? {
+            message
+        }
+    }
+
+    private struct SigningInformation {
+        let identifier: String
+        let teamIdentifier: String
+        let certificateSummary: String
+        let flags: UInt32
+    }
+
+    private static let hardenedRuntimeFlag: UInt32 = 0x10000
+
+    static func isSignedInstalledCopy(
+        expectedPath: String,
+        expectedTeamIdentifier: String,
+        expectedBundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> Bool {
+        let runningURL = Bundle.main.bundleURL.standardizedFileURL
+        let expectedURL = URL(fileURLWithPath: expectedPath, isDirectory: true)
+            .standardizedFileURL
+        guard runningURL == expectedURL, let expectedBundleIdentifier else {
+            return false
+        }
+
+        return isValidSignedApplication(
+            atPath: expectedURL.path,
+            expectedBundleIdentifier: expectedBundleIdentifier,
+            expectedTeamIdentifier: expectedTeamIdentifier
+        )
+    }
+
+    static func isValidSignedApplication(
+        atPath path: String,
+        expectedBundleIdentifier: String,
+        expectedTeamIdentifier: String
+    ) -> Bool {
+        let applicationURL = URL(fileURLWithPath: path, isDirectory: true)
+            .standardizedFileURL
+        let resourceValues = try? applicationURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+        guard
+            applicationURL.pathExtension == "app",
+            resourceValues?.isSymbolicLink != true,
+            let bundle = Bundle(url: applicationURL),
+            bundle.bundleIdentifier == expectedBundleIdentifier,
+            let signingInformation = signingInformation(at: applicationURL),
+            signingInformation.identifier == expectedBundleIdentifier,
+            signingInformation.teamIdentifier == expectedTeamIdentifier,
+            signingInformation.certificateSummary.hasPrefix("Developer ID Application:"),
+            signingInformation.certificateSummary.hasSuffix("(\(expectedTeamIdentifier))"),
+            signingInformation.flags & hardenedRuntimeFlag != 0
+        else {
+            return false
+        }
+
+        return true
+    }
+
+    static func relaunchInstalledApplication(
+        atPath path: String,
+        expectedBundleIdentifier: String,
+        expectedTeamIdentifier: String
+    ) throws {
+        guard isValidSignedApplication(
+            atPath: path,
+            expectedBundleIdentifier: expectedBundleIdentifier,
+            expectedTeamIdentifier: expectedTeamIdentifier
+        ) else {
+            throw RelaunchError(message: "找不到有效的正式签名安装版：\(path)")
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [
+            "-c",
+            "while /bin/kill -0 \"$1\" 2>/dev/null; do /bin/sleep 0.1; done; /usr/bin/open -n \"$2\"",
+            "y-project-relaunch",
+            "\(ProcessInfo.processInfo.processIdentifier)",
+            path
+        ]
+
+        do {
+            try process.run()
+            NSApp.terminate(nil)
+        } catch {
+            throw RelaunchError(message: "无法启动正式安装版：\(error.localizedDescription)")
+        }
+    }
+
+    private static func signingInformation(at applicationURL: URL) -> SigningInformation? {
+        var staticCode: SecStaticCode?
+        guard
+            SecStaticCodeCreateWithPath(applicationURL as CFURL, [], &staticCode) == errSecSuccess,
+            let staticCode,
+            SecStaticCodeCheckValidity(
+                staticCode,
+                SecCSFlags(rawValue: kSecCSStrictValidate),
+                nil
+            ) == errSecSuccess
+        else {
+            return nil
+        }
+
+        var information: CFDictionary?
+        guard
+            SecCodeCopySigningInformation(
+                staticCode,
+                SecCSFlags(rawValue: kSecCSSigningInformation),
+                &information
+            ) == errSecSuccess,
+            let dictionary = information as? [CFString: Any],
+            let identifier = dictionary[kSecCodeInfoIdentifier] as? String,
+            let teamIdentifier = dictionary[kSecCodeInfoTeamIdentifier] as? String,
+            let certificates = dictionary[kSecCodeInfoCertificates] as? [SecCertificate],
+            let leafCertificate = certificates.first,
+            let certificateSummary = SecCertificateCopySubjectSummary(leafCertificate) as String?,
+            let flags = dictionary[kSecCodeInfoFlags] as? NSNumber
+        else {
+            return nil
+        }
+
+        return SigningInformation(
+            identifier: identifier,
+            teamIdentifier: teamIdentifier,
+            certificateSummary: certificateSummary,
+            flags: flags.uint32Value
+        )
+    }
 }
 
 struct YSettingSidebarItem {
@@ -19,6 +155,22 @@ struct YSettingSidebarItem {
     }
 }
 
+enum YSettingStandardSidebar {
+    static let general = YSettingSidebarItem("general", title: "通用", symbolName: "gearshape")
+    static let features = YSettingSidebarItem("features", title: "功能", symbolName: "slider.horizontal.3")
+    static let permissions = YSettingSidebarItem("permissions", title: "权限", symbolName: "lock.shield")
+    static let updates = YSettingSidebarItem("updates", title: "更新", symbolName: "arrow.triangle.2.circlepath")
+    static let about = YSettingSidebarItem("about", title: "关于", symbolName: "info.circle")
+
+    static let all: [YSettingSidebarItem] = [
+        general,
+        features,
+        permissions,
+        updates,
+        about
+    ]
+}
+
 enum YSettingButtonRole {
     case primary
     case secondary
@@ -27,14 +179,15 @@ enum YSettingButtonRole {
 }
 
 enum YSettingUI {
-    static let windowSize = NSSize(width: 900, height: 650)
-    static let minimumWindowSize = NSSize(width: 780, height: 560)
-    static let sidebarWidth: CGFloat = 236
-    static let contentInset = NSEdgeInsets(top: 42, left: 46, bottom: 42, right: 46)
+    static let windowSize = NSSize(width: 1200, height: 810)
+    static let minimumWindowSize = NSSize(width: 900, height: 620)
+    static let sidebarWidth: CGFloat = 285
+    static let sidebarNavigationWidth: CGFloat = 168
+    static let contentInset = NSEdgeInsets(top: 45, left: 45, bottom: 45, right: 45)
     static let contentSpacing: CGFloat = 18
-    static let cardSpacing: CGFloat = 12
+    static let cardSpacing: CGFloat = 10
     static let rowSpacing: CGFloat = 10
-    static let cardCornerRadius: CGFloat = 18
+    static let cardCornerRadius: CGFloat = 12
 
     static func appVersionString() -> String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -54,24 +207,25 @@ enum YSettingUI {
 
     static func makeContentStack(title: String, symbolName: String, subtitle: String? = nil) -> NSStackView {
         let header = contentHeader(title: title, symbolName: symbolName, subtitle: subtitle)
-        let stack = NSStackView(views: [header])
+        let stack = YSettingContentStackView()
         stack.orientation = .vertical
         stack.alignment = .width
         stack.spacing = contentSpacing
         stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(header)
         return stack
     }
 
     static func contentHeader(title: String, symbolName: String, subtitle: String? = nil) -> NSView {
         let symbol = NSImageView()
         symbol.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
-        symbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+        symbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
         symbol.contentTintColor = .white
         symbol.translatesAutoresizingMaskIntoConstraints = false
 
         let symbolBackground = NSView()
         symbolBackground.wantsLayer = true
-        symbolBackground.layer?.cornerRadius = 8
+        symbolBackground.layer?.cornerRadius = 7
         symbolBackground.layer?.cornerCurve = .continuous
         symbolBackground.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
         symbolBackground.translatesAutoresizingMaskIntoConstraints = false
@@ -93,7 +247,7 @@ enum YSettingUI {
         let row = NSStackView(views: [symbolBackground, textStack, spacer()])
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = 14
+        row.spacing = 12
         row.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
@@ -238,8 +392,26 @@ final class YSettingWindowController: NSWindowController, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
-        window.minSize = YSettingUI.minimumWindowSize
-        window.center()
+        if ProcessInfo.processInfo.environment["Y_SETTINGS_PREVIEW"] == "1" {
+            window.sharingType = .readOnly
+        }
+        if let visibleFrame = NSScreen.main?.visibleFrame.insetBy(dx: 20, dy: 20) {
+            var frame = window.frame
+            frame.size.width = min(frame.width, visibleFrame.width)
+            frame.size.height = min(frame.height, visibleFrame.height)
+            frame.origin = NSPoint(
+                x: visibleFrame.midX - frame.width / 2,
+                y: visibleFrame.midY - frame.height / 2
+            )
+            window.setFrame(frame, display: false)
+            window.minSize = NSSize(
+                width: min(YSettingUI.minimumWindowSize.width, frame.width),
+                height: min(YSettingUI.minimumWindowSize.height, frame.height)
+            )
+        } else {
+            window.minSize = YSettingUI.minimumWindowSize
+            window.center()
+        }
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentViewController = rootViewController
 
@@ -260,10 +432,36 @@ final class YSettingWindowController: NSWindowController, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        capturePreviewIfRequested()
+    }
+
+    private func capturePreviewIfRequested() {
+        guard
+            let outputPath = ProcessInfo.processInfo.environment["Y_SETTINGS_PREVIEW_OUTPUT"],
+            !outputPath.isEmpty
+        else {
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let view = self?.window?.contentView else { return }
+            let bounds = view.bounds
+            guard
+                let representation = view.bitmapImageRepForCachingDisplay(in: bounds)
+            else {
+                return
+            }
+            view.cacheDisplay(in: bounds, to: representation)
+            guard let data = representation.representation(using: .png, properties: [:]) else {
+                return
+            }
+            try? data.write(to: URL(fileURLWithPath: outputPath), options: .atomic)
+        }
     }
 
     func selectItem(_ identifier: String) {
         rootViewController.selectItem(identifier)
+        capturePreviewIfRequested()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -289,8 +487,8 @@ final class YSettingSectionView: YSettingHoverTrackingView {
 
         stack.orientation = .vertical
         stack.alignment = .width
-        stack.spacing = 12
-        stack.edgeInsets = NSEdgeInsets(top: 18, left: 20, bottom: 18, right: 20)
+        stack.spacing = 9
+        stack.edgeInsets = NSEdgeInsets(top: 15, left: 17, bottom: 15, right: 17)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
@@ -322,11 +520,11 @@ final class YSettingSectionView: YSettingHoverTrackingView {
     private func header(title: String, symbolName: String, trailingView: NSView?) -> NSView {
         let symbol = NSImageView()
         symbol.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
-        symbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        symbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
         symbol.contentTintColor = .controlAccentColor
         symbol.translatesAutoresizingMaskIntoConstraints = false
 
-        let titleLabel = YSettingUI.label(title, size: 15, weight: .semibold)
+        let titleLabel = YSettingUI.label(title, size: 14, weight: .semibold)
         let views: [NSView]
         if let trailingView {
             views = [symbol, titleLabel, YSettingUI.spacer(), trailingView]
@@ -341,8 +539,8 @@ final class YSettingSectionView: YSettingHoverTrackingView {
         row.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
-            symbol.widthAnchor.constraint(equalToConstant: 20),
-            symbol.heightAnchor.constraint(equalToConstant: 20)
+            symbol.widthAnchor.constraint(equalToConstant: 18),
+            symbol.heightAnchor.constraint(equalToConstant: 18)
         ])
 
         return row
@@ -351,9 +549,9 @@ final class YSettingSectionView: YSettingHoverTrackingView {
     private func updateLayerStyle() {
         layer?.cornerRadius = YSettingUI.cardCornerRadius
         layer?.cornerCurve = .continuous
-        layer?.backgroundColor = NSColor(calibratedWhite: 0.09, alpha: 0.74).cgColor
+        layer?.backgroundColor = NSColor(calibratedWhite: 0.105, alpha: 0.88).cgColor
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.075).cgColor
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.06).cgColor
     }
 }
 
@@ -448,7 +646,7 @@ final class YSettingPill: NSView {
 }
 
 final class YSettingActionButton: NSButton {
-    private let buttonTitle: String
+    private var buttonTitle: String
     private let symbolName: String
     private let role: YSettingButtonRole
     private let titleLabel = NSTextField(labelWithString: "")
@@ -462,7 +660,7 @@ final class YSettingActionButton: NSButton {
         self.role = role
         super.init(frame: .zero)
 
-        self.title = ""
+        super.title = ""
         isBordered = false
         bezelStyle = .regularSquare
         setButtonType(.momentaryPushIn)
@@ -501,6 +699,20 @@ final class YSettingActionButton: NSButton {
 
     required init?(coder: NSCoder) {
         nil
+    }
+
+    override var title: String {
+        get { buttonTitle }
+        set {
+            buttonTitle = newValue
+            super.title = ""
+            titleLabel.stringValue = newValue
+            symbolView.image = NSImage(
+                systemSymbolName: symbolName,
+                accessibilityDescription: newValue
+            )
+            invalidateIntrinsicContentSize()
+        }
     }
 
     override var intrinsicContentSize: NSSize {
@@ -676,10 +888,11 @@ class YSettingHoverTrackingView: NSView {
 private final class YSettingRootViewController: NSViewController {
     private let descriptor: YSettingAppDescriptor
     private let sidebarItems: [YSettingSidebarItem]
+    private let sidebarIdentifiers: Set<String>
     private let contentProvider: YSettingWindowController.ContentProvider
     private var selectedIdentifier: String
     private let sidebarStack = NSStackView()
-    private let contentHost = NSView()
+    private let contentHost = YSettingDocumentView()
     private let scrollView = NSScrollView()
     private var sidebarButtons: [String: YSettingSidebarButton] = [:]
     private var currentContentView: NSView?
@@ -691,10 +904,14 @@ private final class YSettingRootViewController: NSViewController {
         initialIdentifier: String?,
         contentProvider: @escaping YSettingWindowController.ContentProvider
     ) {
+        let sidebarIdentifiers = Set(sidebarItems.map { $0.identifier })
         self.descriptor = descriptor
         self.sidebarItems = sidebarItems
+        self.sidebarIdentifiers = sidebarIdentifiers
         self.contentProvider = contentProvider
-        selectedIdentifier = initialIdentifier ?? sidebarItems.first?.identifier ?? ""
+        selectedIdentifier = initialIdentifier.flatMap { sidebarIdentifiers.contains($0) ? $0 : nil }
+            ?? sidebarItems.first?.identifier
+            ?? ""
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -729,6 +946,9 @@ private final class YSettingRootViewController: NSViewController {
     }
 
     func selectItem(_ identifier: String) {
+        guard sidebarIdentifiers.contains(identifier) else {
+            return
+        }
         guard selectedIdentifier != identifier || currentContentView == nil else {
             return
         }
@@ -767,12 +987,9 @@ private final class YSettingRootViewController: NSViewController {
     }
 
     private func makeSidebar() -> NSView {
-        let sidebar = NSVisualEffectView()
-        sidebar.material = .sidebar
-        sidebar.blendingMode = .behindWindow
-        sidebar.state = .active
+        let sidebar = NSView()
         sidebar.wantsLayer = true
-        sidebar.layer?.backgroundColor = NSColor(calibratedWhite: 0.06, alpha: 0.88).cgColor
+        sidebar.layer?.backgroundColor = NSColor(calibratedWhite: 0.075, alpha: 1).cgColor
         sidebar.translatesAutoresizingMaskIntoConstraints = false
 
         let iconView = NSImageView(image: descriptor.icon)
@@ -793,44 +1010,42 @@ private final class YSettingRootViewController: NSViewController {
         let appStack = NSStackView(views: [iconView, titleLabel, subtitleLabel])
         appStack.orientation = .vertical
         appStack.alignment = .centerX
-        appStack.spacing = 9
+        appStack.spacing = 8
         appStack.translatesAutoresizingMaskIntoConstraints = false
 
         sidebarStack.orientation = .vertical
-        sidebarStack.alignment = .width
+        sidebarStack.alignment = .centerX
         sidebarStack.spacing = 8
         sidebarStack.translatesAutoresizingMaskIntoConstraints = false
 
         for item in sidebarItems {
             let button = YSettingSidebarButton(item: item, target: self, action: #selector(sidebarButtonClicked(_:)))
             sidebarStack.addArrangedSubview(button)
+            button.widthAnchor.constraint(equalToConstant: YSettingUI.sidebarNavigationWidth).isActive = true
             sidebarButtons[item.identifier] = button
         }
 
-        let rootStack = NSStackView(views: [appStack, sidebarStack, YSettingUI.spacer()])
-        rootStack.orientation = .vertical
-        rootStack.alignment = .width
-        rootStack.spacing = 28
-        rootStack.translatesAutoresizingMaskIntoConstraints = false
-        sidebar.addSubview(rootStack)
+        sidebar.addSubview(appStack)
+        sidebar.addSubview(sidebarStack)
 
         NSLayoutConstraint.activate([
-            iconView.widthAnchor.constraint(equalToConstant: 78),
-            iconView.heightAnchor.constraint(equalToConstant: 78),
-            rootStack.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 18),
-            rootStack.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -18),
-            rootStack.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 86),
-            rootStack.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor, constant: -22)
+            iconView.widthAnchor.constraint(equalToConstant: 82),
+            iconView.heightAnchor.constraint(equalToConstant: 82),
+            appStack.centerXAnchor.constraint(equalTo: sidebar.centerXAnchor),
+            appStack.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 96),
+            appStack.widthAnchor.constraint(lessThanOrEqualTo: sidebar.widthAnchor, constant: -56),
+            sidebarStack.centerXAnchor.constraint(equalTo: sidebar.centerXAnchor),
+            sidebarStack.topAnchor.constraint(equalTo: appStack.bottomAnchor, constant: 58),
+            sidebarStack.widthAnchor.constraint(lessThanOrEqualTo: sidebar.widthAnchor, constant: -56)
         ])
 
         return sidebar
     }
 
     private func makeContentArea() -> NSView {
-        let content = NSVisualEffectView()
-        content.material = .hudWindow
-        content.blendingMode = .behindWindow
-        content.state = .active
+        let content = NSView()
+        content.wantsLayer = true
+        content.layer?.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 1).cgColor
         content.translatesAutoresizingMaskIntoConstraints = false
 
         scrollView.drawsBackground = false
@@ -865,6 +1080,20 @@ private final class YSettingRootViewController: NSViewController {
     }
 }
 
+private final class YSettingDocumentView: NSView {
+    override var isFlipped: Bool {
+        true
+    }
+}
+
+private final class YSettingContentStackView: NSStackView {
+    override func addArrangedSubview(_ view: NSView) {
+        super.addArrangedSubview(view)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
+    }
+}
+
 private final class YSettingSidebarButton: NSButton {
     let itemIdentifier: String
     private let itemTitle: String
@@ -895,29 +1124,30 @@ private final class YSettingSidebarButton: NSButton {
         setButtonType(.momentaryPushIn)
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: 42).isActive = true
+        heightAnchor.constraint(equalToConstant: 38).isActive = true
 
         symbolView.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: itemTitle)
-        symbolView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+        symbolView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
         symbolView.translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.stringValue = itemTitle
-        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.usesSingleLineMode = true
 
         let row = NSStackView(views: [symbolView, titleLabel])
         row.orientation = .horizontal
         row.alignment = .centerY
-        row.spacing = 11
+        row.spacing = 10
         row.translatesAutoresizingMaskIntoConstraints = false
         addSubview(row)
 
         NSLayoutConstraint.activate([
-            symbolView.widthAnchor.constraint(equalToConstant: 22),
-            symbolView.heightAnchor.constraint(equalToConstant: 22),
-            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
-            row.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
+            symbolView.widthAnchor.constraint(equalToConstant: 18),
+            symbolView.heightAnchor.constraint(equalToConstant: 18),
+            row.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 12),
+            row.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+            row.centerXAnchor.constraint(equalTo: centerXAnchor),
             row.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
 
@@ -965,14 +1195,14 @@ private final class YSettingSidebarButton: NSButton {
         let active = isSelected || isHighlighted
         let backgroundAlpha: CGFloat
         if active {
-            backgroundAlpha = 0.14
+            backgroundAlpha = 0.16
         } else {
             backgroundAlpha = hovering ? 0.08 : 0
         }
 
         titleLabel.textColor = active ? .labelColor : .secondaryLabelColor
         symbolView.contentTintColor = active ? .controlAccentColor : .secondaryLabelColor
-        layer?.cornerRadius = 10
+        layer?.cornerRadius = 8
         layer?.cornerCurve = .continuous
         layer?.backgroundColor = NSColor.white.withAlphaComponent(backgroundAlpha).cgColor
     }

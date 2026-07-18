@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotKey(settingsStore.hotKey)
         scheduleAutomaticUpdateCheckIfNeeded()
         rememberAccessibilityTrustIfNeeded()
+        continuePendingAccessibilityRepairIfNeeded()
 
         // 让面板能根据图片项找到磁盘上的全图，用于生成缩略图。
         panelController.imageURLProvider = { [weak self] payload in
@@ -36,6 +37,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panelController.close()
             openSettings()
         }
+
+        showSettingsForPreviewIfRequested()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -91,6 +94,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onOpenAccessibility: { [weak self] in
                 self?.showAccessibilityRepairOptions()
             },
+            onResetAccessibility: { [weak self] completion in
+                guard let self else {
+                    completion(.failed("设置控制器已释放，请重新打开设置后再试。"))
+                    return
+                }
+                self.refreshAccessibilityAuthorization(completion: completion)
+            },
             onOpenGitHub: {
                 if let url = URL(string: "https://github.com/Rainchen537/Y-Clip") {
                     NSWorkspace.shared.open(url)
@@ -101,6 +111,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         settingsWindowController?.show()
+    }
+
+    private func showSettingsForPreviewIfRequested() {
+        guard ProcessInfo.processInfo.environment["Y_SETTINGS_PREVIEW"] == "1" else {
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.openSettings()
+            if let identifier = ProcessInfo.processInfo.environment["Y_SETTINGS_PREVIEW_SECTION"] {
+                self?.settingsWindowController?.selectItem(identifier)
+            }
+        }
     }
 
     @objc private func quit() {
@@ -283,17 +306,103 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func refreshAccessibilityAuthorization() {
-        do {
-            try AccessibilityPermission.resetAuthorization()
-            settingsStore.accessibilityWasTrusted = false
+    private func refreshAccessibilityAuthorization(completion: ((AccessibilityRepairResult) -> Void)? = nil) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                try AccessibilityPermission.resetAuthorization()
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.settingsStore.accessibilityWasTrusted = false
+                    self.finishAccessibilityRepair(completion: completion)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    if let completion {
+                        completion(.failed(error.localizedDescription))
+                    } else {
+                        self?.showAlert(
+                            title: "刷新辅助功能权限失败",
+                            message: error.localizedDescription
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func finishAccessibilityRepair(completion: ((AccessibilityRepairResult) -> Void)?) {
+        let isInstalledCopy = YSettingRuntimeIdentity.isSignedInstalledCopy(
+            expectedPath: YClipApplicationIdentity.installedApplicationPath,
+            expectedTeamIdentifier: YClipApplicationIdentity.teamIdentifier,
+            expectedBundleIdentifier: YClipApplicationIdentity.bundleIdentifier
+        )
+        if isInstalledCopy {
+            completion?(.authorizationRequested)
             AccessibilityPermission.requestPrompt()
             AccessibilityPermission.openSettings()
-        } catch {
-            showAlert(
-                title: "刷新辅助功能权限失败",
-                message: error.localizedDescription
+            return
+        }
+
+        let hasInstalledCopy = YSettingRuntimeIdentity.isValidSignedApplication(
+            atPath: YClipApplicationIdentity.installedApplicationPath,
+            expectedBundleIdentifier: YClipApplicationIdentity.bundleIdentifier,
+            expectedTeamIdentifier: YClipApplicationIdentity.teamIdentifier
+        )
+        guard hasInstalledCopy else {
+            if let completion {
+                completion(.installedCopyRequired)
+            } else {
+                showAlert(
+                    title: "请先安装正式版 Y-Clip",
+                    message: "权限记录已定向刷新，但当前运行的是开发副本，且没有找到有效的 /Applications/Y-Clip.app。为避免把辅助功能权限重新绑定到开发副本，本次不会请求授权。请先安装正式版，再从应用程序文件夹启动并授权。"
+                )
+            }
+            return
+        }
+
+        settingsStore.accessibilityRepairPending = true
+        completion?(.switchingToInstalledCopy)
+        do {
+            try YSettingRuntimeIdentity.relaunchInstalledApplication(
+                atPath: YClipApplicationIdentity.installedApplicationPath,
+                expectedBundleIdentifier: YClipApplicationIdentity.bundleIdentifier,
+                expectedTeamIdentifier: YClipApplicationIdentity.teamIdentifier
             )
+        } catch {
+            settingsStore.accessibilityRepairPending = false
+            if let completion {
+                completion(.failed(error.localizedDescription))
+            } else {
+                showAlert(title: "无法切换到正式安装版", message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func continuePendingAccessibilityRepairIfNeeded() {
+        guard settingsStore.accessibilityRepairPending else {
+            return
+        }
+
+        let isInstalledCopy = YSettingRuntimeIdentity.isSignedInstalledCopy(
+            expectedPath: YClipApplicationIdentity.installedApplicationPath,
+            expectedTeamIdentifier: YClipApplicationIdentity.teamIdentifier,
+            expectedBundleIdentifier: YClipApplicationIdentity.bundleIdentifier
+        )
+        guard isInstalledCopy else {
+            return
+        }
+
+        settingsStore.accessibilityRepairPending = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = "已切换到正式安装版"
+            alert.informativeText = "Y-Clip 已从 /Applications 重新启动。接下来请在系统设置中重新允许辅助功能权限。"
+            alert.addButton(withTitle: "打开系统设置")
+            alert.runModal()
+            AccessibilityPermission.requestPrompt()
+            AccessibilityPermission.openSettings()
         }
     }
 

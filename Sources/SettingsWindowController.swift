@@ -2,6 +2,13 @@ import AppKit
 import Carbon
 
 final class SettingsWindowController: NSObject {
+    private enum PreviewPlacement {
+        case left
+        case right
+        case above
+        case below
+    }
+
     private let settingsContentController: SettingsContentController
     private let windowController: YSettingWindowController
     private let previewPanel: NSPanel = {
@@ -12,7 +19,11 @@ final class SettingsWindowController: NSObject {
             defer: false
         )
         panel.isReleasedWhenClosed = false
+        if ProcessInfo.processInfo.environment["Y_SETTINGS_PREVIEW"] == "1" {
+            panel.sharingType = .readOnly
+        }
         panel.level = .floating
+        panel.hidesOnDeactivate = true
         panel.hasShadow = false
         panel.backgroundColor = .clear
         panel.isOpaque = false
@@ -22,9 +33,14 @@ final class SettingsWindowController: NSObject {
     }()
     private var previewHideWorkItem: DispatchWorkItem?
     private var isPreviewHeldByHover = false
+    private var isFeaturesSelected = false
     private var escapeMonitor: Any?
     private var windowMoveObserver: NSObjectProtocol?
     private var windowResizeObserver: NSObjectProtocol?
+    private var applicationActivationObserver: NSObjectProtocol?
+    private var settingsMinimumSizeBeforePreview: NSSize?
+    private var settingsMaximumSizeBeforePreview: NSSize?
+    private var hasAutomaticallyArrangedPreviewPair = false
 
     init(
         hotKey: HotKey,
@@ -41,6 +57,7 @@ final class SettingsWindowController: NSObject {
         onCheckForUpdates: @escaping () -> Void,
         onInstallUpdate: @escaping () -> Void,
         onOpenAccessibility: @escaping () -> Void,
+        onResetAccessibility: @escaping (@escaping (AccessibilityRepairResult) -> Void) -> Void,
         onOpenGitHub: @escaping () -> Void
     ) {
         settingsContentController = SettingsContentController(
@@ -58,6 +75,7 @@ final class SettingsWindowController: NSObject {
             onCheckForUpdates: onCheckForUpdates,
             onInstallUpdate: onInstallUpdate,
             onOpenAccessibility: onOpenAccessibility,
+            onResetAccessibility: onResetAccessibility,
             onOpenGitHub: onOpenGitHub
         )
 
@@ -67,17 +85,12 @@ final class SettingsWindowController: NSObject {
             version: YSettingUI.appVersionString(),
             icon: YSettingUI.bundledAppIcon()
         )
-        let items = [
-            YSettingSidebarItem("clipboard", title: "剪贴板", symbolName: "clipboard"),
-            YSettingSidebarItem("behavior", title: "行为", symbolName: "switch.2"),
-            YSettingSidebarItem("actions", title: "操作", symbolName: "slider.horizontal.3"),
-            YSettingSidebarItem("about", title: "关于", symbolName: "info.circle")
-        ]
+        let items = YSettingStandardSidebar.all
         let contentController = settingsContentController
         windowController = YSettingWindowController(
             descriptor: descriptor,
             sidebarItems: items,
-            initialIdentifier: "clipboard"
+            initialIdentifier: "general"
         ) { identifier in
             contentController.makeContent(for: identifier)
         }
@@ -91,6 +104,18 @@ final class SettingsWindowController: NSObject {
         settingsContentController.onDisplayHoverChange = { [weak self] isHovering in
             self?.setPreviewHovering(isHovering)
         }
+        settingsContentController.onContentSelection = { [weak self] identifier in
+            guard let self else { return }
+            isFeaturesSelected = identifier == YSettingStandardSidebar.features.identifier
+            if isFeaturesSelected {
+                showPreviewPanel()
+            } else {
+                previewHideWorkItem?.cancel()
+                previewHideWorkItem = nil
+                hidePreviewPanel()
+                restoreSettingsSizingAfterPreview()
+            }
+        }
         windowController.onClose = { [weak self] in
             self?.handleWindowClosed()
         }
@@ -99,6 +124,7 @@ final class SettingsWindowController: NSObject {
     deinit {
         endEscapeMonitoring()
         removeWindowObservers()
+        removeApplicationActivationObserver()
     }
 
     var isShown: Bool {
@@ -106,11 +132,20 @@ final class SettingsWindowController: NSObject {
     }
 
     func show() {
+        settingsContentController.refreshForPresentation()
         updateLaunchAtLogin(LaunchAtLoginController.isEnabled)
         windowController.showAndActivate()
         settingsContentController.clearInitialFocus(in: windowController.window)
         beginEscapeMonitoring()
         installWindowObserversIfNeeded()
+        installApplicationActivationObserverIfNeeded()
+        if isFeaturesSelected {
+            showPreviewPanel()
+        }
+    }
+
+    func selectItem(_ identifier: String) {
+        windowController.selectItem(identifier)
     }
 
     func close() {
@@ -140,10 +175,12 @@ final class SettingsWindowController: NSObject {
     private func handleWindowClosed() {
         endEscapeMonitoring()
         removeWindowObservers()
+        removeApplicationActivationObserver()
         isPreviewHeldByHover = false
         previewHideWorkItem?.cancel()
         previewHideWorkItem = nil
         previewPanel.orderOut(nil)
+        restoreSettingsSizingAfterPreview()
         settingsContentController.stopRecording()
     }
 
@@ -205,6 +242,34 @@ final class SettingsWindowController: NSObject {
         windowResizeObserver = nil
     }
 
+    private func installApplicationActivationObserverIfNeeded() {
+        guard applicationActivationObserver == nil else {
+            return
+        }
+
+        applicationActivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, windowController.isVisible else {
+                return
+            }
+
+            settingsContentController.refreshForPresentation()
+            if isFeaturesSelected {
+                showPreviewPanel()
+            }
+        }
+    }
+
+    private func removeApplicationActivationObserver() {
+        if let applicationActivationObserver {
+            NotificationCenter.default.removeObserver(applicationActivationObserver)
+        }
+        applicationActivationObserver = nil
+    }
+
     private func showPreviewPanelTemporarily() {
         guard windowController.isVisible else {
             return
@@ -218,11 +283,11 @@ final class SettingsWindowController: NSObject {
 
         previewHideWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
-            guard self?.isPreviewHeldByHover == false else {
+            guard let self, !isPreviewHeldByHover, !isFeaturesSelected else {
                 return
             }
 
-            self?.hidePreviewPanel()
+            hidePreviewPanel()
         }
         previewHideWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: workItem)
@@ -238,11 +303,11 @@ final class SettingsWindowController: NSObject {
         } else {
             previewHideWorkItem?.cancel()
             let workItem = DispatchWorkItem { [weak self] in
-                guard self?.isPreviewHeldByHover == false else {
+                guard let self, !isPreviewHeldByHover, !isFeaturesSelected else {
                     return
                 }
 
-                self?.hidePreviewPanel()
+                hidePreviewPanel()
             }
             previewHideWorkItem = workItem
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: workItem)
@@ -254,8 +319,37 @@ final class SettingsWindowController: NSObject {
             return
         }
 
-        positionPreviewPanel()
+        prepareSettingsWindowForPreview()
+        guard positionPreviewPanel() else {
+            return
+        }
         previewPanel.orderFront(nil)
+        capturePreviewPanelIfRequested()
+    }
+
+    private func capturePreviewPanelIfRequested() {
+        guard
+            let outputPath = ProcessInfo.processInfo.environment["Y_SETTINGS_PREVIEW_OUTPUT"],
+            !outputPath.isEmpty
+        else {
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+            guard let view = self?.previewPanel.contentView else { return }
+            let bounds = view.bounds
+            guard let representation = view.bitmapImageRepForCachingDisplay(in: bounds) else {
+                return
+            }
+            view.cacheDisplay(in: bounds, to: representation)
+            guard let data = representation.representation(using: .png, properties: [:]) else {
+                return
+            }
+            let outputURL = URL(fileURLWithPath: outputPath)
+            let sidecarURL = outputURL.deletingPathExtension()
+                .appendingPathExtension("sidecar.png")
+            try? data.write(to: sidecarURL, options: .atomic)
+        }
     }
 
     private func hidePreviewPanel() {
@@ -268,44 +362,209 @@ final class SettingsWindowController: NSObject {
             return
         }
 
-        positionPreviewPanel()
+        _ = positionPreviewPanel()
     }
 
-    private func positionPreviewPanel() {
+    private func prepareSettingsWindowForPreview() {
         guard let settingsWindow = windowController.window else {
             return
         }
 
-        let previewSize = ClipboardPreviewView.previewSize(for: settingsContentController.panelMetrics)
-        settingsContentController.previewView.frame = NSRect(origin: .zero, size: previewSize)
-
-        let settingsFrame = settingsWindow.frame
         let screen = settingsWindow.screen ?? NSScreen.main ?? NSScreen.screens[0]
         let visibleFrame = screen.visibleFrame.insetBy(dx: 10, dy: 10)
         let gap: CGFloat = 12
+        let modelSize = ClipboardPreviewView.previewSize(for: settingsContentController.panelMetrics)
+        let targetSettingsWidth = min(700, visibleFrame.width * 0.72)
+        let maximumPreviewSize = NSSize(
+            width: max(1, visibleFrame.width - targetSettingsWidth - gap),
+            height: max(1, visibleFrame.height)
+        )
+        let previewScale = max(0.01, min(
+            1,
+            maximumPreviewSize.width / modelSize.width,
+            maximumPreviewSize.height / modelSize.height
+        ))
+        let reservedPreviewWidth = floor(modelSize.width * previewScale)
+        let maximumSettingsSize = NSSize(
+            width: max(1, visibleFrame.width - reservedPreviewWidth - gap),
+            height: max(1, visibleFrame.height)
+        )
 
-        let rightX = settingsFrame.maxX + gap
-        let leftX = settingsFrame.minX - previewSize.width - gap
-        let x: CGFloat
-
-        if rightX + previewSize.width <= visibleFrame.maxX {
-            x = rightX
-        } else if leftX >= visibleFrame.minX {
-            x = leftX
-        } else {
-            x = clamp(leftX, lower: visibleFrame.minX, upper: visibleFrame.maxX - previewSize.width)
+        if settingsMinimumSizeBeforePreview == nil {
+            settingsMinimumSizeBeforePreview = settingsWindow.minSize
+            settingsMaximumSizeBeforePreview = settingsWindow.maxSize
         }
 
-        let y = clamp(
-            settingsFrame.maxY - previewSize.height,
-            lower: visibleFrame.minY,
-            upper: visibleFrame.maxY - previewSize.height
+        let originalMinimumSize = settingsMinimumSizeBeforePreview ?? settingsWindow.minSize
+        let originalMaximumSize = settingsMaximumSizeBeforePreview ?? settingsWindow.maxSize
+        settingsWindow.minSize = NSSize(
+            width: min(originalMinimumSize.width, maximumSettingsSize.width),
+            height: min(originalMinimumSize.height, maximumSettingsSize.height)
         )
-        previewPanel.setFrame(NSRect(x: x, y: y, width: previewSize.width, height: previewSize.height), display: true)
+        settingsWindow.maxSize = NSSize(
+            width: min(originalMaximumSize.width, maximumSettingsSize.width),
+            height: min(originalMaximumSize.height, maximumSettingsSize.height)
+        )
+
+        var settingsFrame = settingsWindow.frame
+        let originalCenter = NSPoint(x: settingsFrame.midX, y: settingsFrame.midY)
+        settingsFrame.size.width = min(settingsFrame.width, maximumSettingsSize.width)
+        settingsFrame.size.height = min(settingsFrame.height, maximumSettingsSize.height)
+
+        if hasAutomaticallyArrangedPreviewPair {
+            settingsFrame.origin = NSPoint(
+                x: originalCenter.x - settingsFrame.width / 2,
+                y: originalCenter.y - settingsFrame.height / 2
+            )
+            settingsFrame.origin.x = clamp(
+                settingsFrame.origin.x,
+                lower: visibleFrame.minX,
+                upper: visibleFrame.maxX - settingsFrame.width
+            )
+        } else {
+            let combinedWidth = settingsFrame.width + gap + reservedPreviewWidth
+            settingsFrame.origin.x = clamp(
+                visibleFrame.midX - combinedWidth / 2,
+                lower: visibleFrame.minX,
+                upper: visibleFrame.maxX - combinedWidth
+            )
+            hasAutomaticallyArrangedPreviewPair = true
+        }
+        settingsFrame.origin.y = clamp(
+            settingsFrame.origin.y,
+            lower: visibleFrame.minY,
+            upper: visibleFrame.maxY - settingsFrame.height
+        )
+
+        if settingsFrame != settingsWindow.frame {
+            settingsWindow.setFrame(settingsFrame, display: true, animate: false)
+        }
+    }
+
+    @discardableResult
+    private func positionPreviewPanel() -> Bool {
+        guard let settingsWindow = windowController.window else {
+            return false
+        }
+
+        let screen = settingsWindow.screen ?? NSScreen.main ?? NSScreen.screens[0]
+        let visibleFrame = screen.visibleFrame.insetBy(dx: 10, dy: 10)
+        let settingsFrame = settingsWindow.frame
+        let gap: CGFloat = 12
+        let modelSize = ClipboardPreviewView.previewSize(for: settingsContentController.panelMetrics)
+        var bestPlacement = PreviewPlacement.right
+        var bestScale: CGFloat = 0
+
+        func consider(_ placement: PreviewPlacement, availableWidth: CGFloat, availableHeight: CGFloat) {
+            guard availableWidth > 0, availableHeight > 0 else {
+                return
+            }
+
+            let scale = min(1, availableWidth / modelSize.width, availableHeight / modelSize.height)
+            if scale > bestScale {
+                bestScale = scale
+                bestPlacement = placement
+            }
+        }
+
+        consider(
+            .right,
+            availableWidth: visibleFrame.maxX - settingsFrame.maxX - gap,
+            availableHeight: visibleFrame.height
+        )
+        consider(
+            .left,
+            availableWidth: settingsFrame.minX - visibleFrame.minX - gap,
+            availableHeight: visibleFrame.height
+        )
+        consider(
+            .above,
+            availableWidth: visibleFrame.width,
+            availableHeight: visibleFrame.maxY - settingsFrame.maxY - gap
+        )
+        consider(
+            .below,
+            availableWidth: visibleFrame.width,
+            availableHeight: settingsFrame.minY - visibleFrame.minY - gap
+        )
+
+        guard bestScale > 0 else {
+            previewPanel.orderOut(nil)
+            return false
+        }
+
+        let previewSize = NSSize(
+            width: max(1, floor(modelSize.width * bestScale)),
+            height: max(1, floor(modelSize.height * bestScale))
+        )
+        settingsContentController.previewView.frame = NSRect(origin: .zero, size: previewSize)
+
+        let previewOrigin: NSPoint
+        switch bestPlacement {
+        case .right:
+            previewOrigin = NSPoint(
+                x: settingsFrame.maxX + gap,
+                y: clamp(
+                    settingsFrame.maxY - previewSize.height,
+                    lower: visibleFrame.minY,
+                    upper: visibleFrame.maxY - previewSize.height
+                )
+            )
+        case .left:
+            previewOrigin = NSPoint(
+                x: settingsFrame.minX - gap - previewSize.width,
+                y: clamp(
+                    settingsFrame.maxY - previewSize.height,
+                    lower: visibleFrame.minY,
+                    upper: visibleFrame.maxY - previewSize.height
+                )
+            )
+        case .above:
+            previewOrigin = NSPoint(
+                x: clamp(
+                    settingsFrame.midX - previewSize.width / 2,
+                    lower: visibleFrame.minX,
+                    upper: visibleFrame.maxX - previewSize.width
+                ),
+                y: settingsFrame.maxY + gap
+            )
+        case .below:
+            previewOrigin = NSPoint(
+                x: clamp(
+                    settingsFrame.midX - previewSize.width / 2,
+                    lower: visibleFrame.minX,
+                    upper: visibleFrame.maxX - previewSize.width
+                ),
+                y: settingsFrame.minY - gap - previewSize.height
+            )
+        }
+
+        previewPanel.setFrame(NSRect(origin: previewOrigin, size: previewSize), display: true)
+        return true
+    }
+
+    private func restoreSettingsSizingAfterPreview() {
+        guard let settingsWindow = windowController.window else {
+            settingsMinimumSizeBeforePreview = nil
+            settingsMaximumSizeBeforePreview = nil
+            return
+        }
+
+        if let settingsMinimumSizeBeforePreview {
+            settingsWindow.minSize = settingsMinimumSizeBeforePreview
+        }
+        if let settingsMaximumSizeBeforePreview {
+            settingsWindow.maxSize = settingsMaximumSizeBeforePreview
+        }
+        settingsMinimumSizeBeforePreview = nil
+        settingsMaximumSizeBeforePreview = nil
     }
 
     private func clamp(_ value: CGFloat, lower: CGFloat, upper: CGFloat) -> CGFloat {
-        min(max(value, lower), upper)
+        guard upper >= lower else {
+            return lower
+        }
+        return min(max(value, lower), upper)
     }
 }
 
@@ -326,6 +585,13 @@ private final class SettingsContentController {
     private let updateButton = NSButton(title: "检查更新", target: nil, action: nil)
     private let updateStatusLabel = NSTextField(labelWithString: "尚未检查更新。")
     private let versionPill = YSettingPill()
+    private let accessibilityStatusPill = YSettingPill(text: "检测中", tone: .neutral)
+    private let runtimeIdentityPill = YSettingPill(text: "检测中", tone: .neutral)
+    private lazy var requestAccessibilityButton = YSettingUI.makeButton(title: "请求", symbolName: "hand.raised", target: self, action: #selector(requestAccessibility))
+    private lazy var openAccessibilityButton = YSettingUI.makeButton(title: "打开", symbolName: "gearshape", target: self, action: #selector(openAccessibility))
+    private lazy var switchToInstalledButton = YSettingUI.makeButton(title: "切换到安装版", symbolName: "arrow.right.app", role: .primary, target: self, action: #selector(switchToInstalledCopy))
+    private lazy var resetAccessibilityButton = YSettingUI.makeButton(title: "刷新记录", symbolName: "arrow.counterclockwise", target: self, action: #selector(resetAccessibility))
+    private lazy var recheckAccessibilityButton = YSettingUI.makeButton(title: "重新检测", symbolName: "checkmark.shield", target: self, action: #selector(refreshAccessibilityStatus))
     private let historyLimitField = NSTextField(string: "")
     private let historyLimitStepper = NSStepper()
     private var localKeyMonitor: Any?
@@ -342,9 +608,11 @@ private final class SettingsContentController {
     private let onCheckForUpdates: () -> Void
     private let onInstallUpdate: () -> Void
     private let onOpenAccessibility: () -> Void
+    private let onResetAccessibility: (@escaping (AccessibilityRepairResult) -> Void) -> Void
     private let onOpenGitHub: () -> Void
     var onPreviewAdjustment: (() -> Void)?
     var onDisplayHoverChange: ((Bool) -> Void)?
+    var onContentSelection: ((String) -> Void)?
     var panelMetrics: HistoryPanelMetrics {
         currentPanelMetrics
     }
@@ -367,6 +635,7 @@ private final class SettingsContentController {
         onCheckForUpdates: @escaping () -> Void,
         onInstallUpdate: @escaping () -> Void,
         onOpenAccessibility: @escaping () -> Void,
+        onResetAccessibility: @escaping (@escaping (AccessibilityRepairResult) -> Void) -> Void,
         onOpenGitHub: @escaping () -> Void
     ) {
         currentHotKey = hotKey
@@ -381,6 +650,7 @@ private final class SettingsContentController {
         self.onCheckForUpdates = onCheckForUpdates
         self.onInstallUpdate = onInstallUpdate
         self.onOpenAccessibility = onOpenAccessibility
+        self.onResetAccessibility = onResetAccessibility
         self.onOpenGitHub = onOpenGitHub
 
         launchAtLoginSwitch.state = launchAtLoginEnabled ? .on : .off
@@ -392,19 +662,28 @@ private final class SettingsContentController {
         updateLaunchAtLogin(launchAtLoginEnabled)
         updateAutoUpdateState(autoUpdateEnabled)
         updateUpdateStatus(currentUpdateStatus)
+        refreshAccessibilityStatus()
     }
 
     func makeContent(for identifier: String) -> NSView {
+        onContentSelection?(identifier)
+
         switch identifier {
-        case "behavior":
-            return behaviorContent()
-        case "actions":
-            return actionsContent()
+        case "features":
+            return featuresContent()
+        case "permissions":
+            return permissionsContent()
+        case "updates":
+            return updatesContent()
         case "about":
             return aboutContent()
         default:
-            return clipboardContent()
+            return generalContent()
         }
+    }
+
+    func refreshForPresentation() {
+        refreshAccessibilityStatus()
     }
 
     func clearInitialFocus(in window: NSWindow?) {
@@ -489,11 +768,29 @@ private final class SettingsContentController {
         recordingHintLabel.isHidden = true
     }
 
-    private func clipboardContent() -> NSView {
+    private func generalContent() -> NSView {
         let stack = YSettingUI.makeContentStack(
-            title: "剪贴板",
-            symbolName: "clipboard",
-            subtitle: "调整历史面板尺寸、展示行数和历史保留数量。"
+            title: "通用",
+            symbolName: "gearshape"
+        )
+
+        stack.addArrangedSubview(YSettingSectionView(
+            title: "启动与快捷键",
+            symbolName: "keyboard",
+            views: [
+                YSettingUI.row(title: "快捷键", trailingView: shortcutButton),
+                YSettingUI.row(title: "开机启动", trailingView: YSettingUI.horizontal([launchAtLoginStatusPill, launchAtLoginSwitch])),
+                recordingHintLabel
+            ]
+        ))
+
+        return stack
+    }
+
+    private func featuresContent() -> NSView {
+        let stack = YSettingUI.makeContentStack(
+            title: "功能",
+            symbolName: "slider.horizontal.3"
         )
 
         let resetButton = YSettingUI.makeButton(
@@ -511,7 +808,15 @@ private final class SettingsContentController {
                 YSettingUI.sliderRow(title: "面板大小", slider: scaleSlider, valueView: scaleValuePill),
                 YSettingUI.sliderRow(title: "面板宽度", slider: widthSlider, valueView: widthValuePill),
                 YSettingUI.sliderRow(title: "显示行数", slider: lengthSlider, valueView: lengthValuePill),
-                makeHistoryLimitRow()
+                makeHistoryLimitRow(),
+                YSettingUI.divider(),
+                YSettingUI.row(title: "清空历史", trailingView: YSettingUI.makeButton(
+                    title: "清空...",
+                    symbolName: "trash",
+                    role: .danger,
+                    target: self,
+                    action: #selector(confirmClearHistory)
+                ))
             ],
             trailingView: resetButton,
             onHoverChange: { [weak self] isHovering in
@@ -522,58 +827,49 @@ private final class SettingsContentController {
         return stack
     }
 
-    private func behaviorContent() -> NSView {
+    private func permissionsContent() -> NSView {
         let stack = YSettingUI.makeContentStack(
-            title: "行为",
-            symbolName: "switch.2",
-            subtitle: "设置呼出方式、开机启动和自动检查更新。"
+            title: "权限",
+            symbolName: "lock.shield"
         )
 
         stack.addArrangedSubview(YSettingSectionView(
-            title: "快捷操作",
-            symbolName: "keyboard",
+            title: "辅助功能",
+            symbolName: "accessibility",
             views: [
-                YSettingUI.row(title: "快捷键", trailingView: shortcutButton),
-                YSettingUI.row(title: "开机启动", trailingView: YSettingUI.horizontal([launchAtLoginStatusPill, launchAtLoginSwitch])),
-                YSettingUI.row(title: "自动检查更新", trailingView: YSettingUI.horizontal([autoUpdateStatusPill, autoUpdateSwitch])),
-                recordingHintLabel
+                YSettingUI.row(
+                    title: "当前副本",
+                    trailingView: YSettingUI.horizontal([runtimeIdentityPill, switchToInstalledButton])
+                ),
+                YSettingUI.row(
+                    title: "权限状态",
+                    trailingView: YSettingUI.horizontal([accessibilityStatusPill, requestAccessibilityButton, openAccessibilityButton])
+                ),
+                YSettingUI.row(
+                    title: "权限修复",
+                    trailingView: YSettingUI.horizontal([resetAccessibilityButton, recheckAccessibilityButton])
+                )
             ]
         ))
 
         return stack
     }
 
-    private func actionsContent() -> NSView {
+    private func updatesContent() -> NSView {
         let stack = YSettingUI.makeContentStack(
-            title: "操作",
-            symbolName: "slider.horizontal.3",
-            subtitle: "管理历史数据和系统权限。"
+            title: "更新",
+            symbolName: "arrow.triangle.2.circlepath"
         )
 
-        let clearButton = YSettingUI.makeButton(
-            title: "清空...",
-            symbolName: "trash",
-            role: .danger,
-            target: self,
-            action: #selector(confirmClearHistory)
-        )
-        let permissionButton = YSettingUI.makeButton(
-            title: "辅助功能",
-            symbolName: "accessibility",
-            role: .secondary,
-            target: self,
-            action: #selector(openAccessibility)
-        )
-
-        let permissionHint = YSettingUI.secondaryLabel("自动粘贴需要辅助功能权限。若系统设置显示已开启但仍无法粘贴，可进入权限修复流程刷新记录。")
-
+        versionPill.setText(YSettingUI.appVersionString(), tone: .neutral)
         stack.addArrangedSubview(YSettingSectionView(
-            title: "维护",
-            symbolName: "wrench.and.screwdriver",
+            title: "版本更新",
+            symbolName: "sparkles",
             views: [
-                YSettingUI.row(title: "清空历史", trailingView: clearButton),
-                YSettingUI.row(title: "系统权限", trailingView: permissionButton),
-                permissionHint
+                YSettingUI.row(title: "当前版本", trailingView: YSettingUI.horizontal([versionPill, updateButton])),
+                YSettingUI.row(title: "发布渠道", trailingView: YSettingPill(text: "GitHub Release", tone: .accent)),
+                YSettingUI.row(title: "自动检查更新", trailingView: YSettingUI.horizontal([autoUpdateStatusPill, autoUpdateSwitch])),
+                updateStatusLabel
             ]
         ))
 
@@ -583,11 +879,9 @@ private final class SettingsContentController {
     private func aboutContent() -> NSView {
         let stack = YSettingUI.makeContentStack(
             title: "关于",
-            symbolName: "info.circle",
-            subtitle: "版本、更新和项目主页。"
+            symbolName: "info.circle"
         )
 
-        versionPill.setText(YSettingUI.appVersionString(), tone: .neutral)
         let githubButton = YSettingUI.makeButton(
             title: "GitHub",
             symbolName: "arrow.up.right.square",
@@ -597,12 +891,11 @@ private final class SettingsContentController {
         )
 
         stack.addArrangedSubview(YSettingSectionView(
-            title: "版本",
-            symbolName: "sparkles",
+            title: "Y-Project",
+            symbolName: "app.connected.to.app.below.fill",
             views: [
-                YSettingUI.row(title: "当前版本", trailingView: YSettingUI.horizontal([versionPill, updateButton])),
-                YSettingUI.row(title: "项目主页", trailingView: githubButton),
-                updateStatusLabel
+                YSettingUI.row(title: "产品定位", trailingView: YSettingPill(text: "全局剪贴板历史", tone: .accent)),
+                YSettingUI.row(title: "项目主页", trailingView: githubButton)
             ]
         ))
 
@@ -699,6 +992,73 @@ private final class SettingsContentController {
 
     @objc private func openAccessibility() {
         onOpenAccessibility()
+        refreshAccessibilityStatus()
+    }
+
+    @objc private func requestAccessibility() {
+        AccessibilityPermission.requestPrompt()
+        refreshAccessibilityStatus()
+    }
+
+    @objc private func switchToInstalledCopy() {
+        do {
+            try YSettingRuntimeIdentity.relaunchInstalledApplication(
+                atPath: YClipApplicationIdentity.installedApplicationPath,
+                expectedBundleIdentifier: YClipApplicationIdentity.bundleIdentifier,
+                expectedTeamIdentifier: YClipApplicationIdentity.teamIdentifier
+            )
+        } catch {
+            showAlert(title: "无法切换到正式安装版", message: error.localizedDescription)
+        }
+    }
+
+    @objc private func resetAccessibility() {
+        resetAccessibilityButton.isEnabled = false
+        onResetAccessibility { [weak self] result in
+            guard let self else { return }
+            resetAccessibilityButton.isEnabled = true
+            refreshAccessibilityStatus()
+
+            switch result {
+            case .authorizationRequested:
+                break
+            case .switchingToInstalledCopy:
+                resetAccessibilityButton.isEnabled = false
+            case .installedCopyRequired:
+                showAlert(
+                    title: "请先安装正式版 Y-Clip",
+                    message: "权限记录已定向刷新，但不会为当前开发副本重新请求授权。请先安装有效的 /Applications/Y-Clip.app，再从应用程序文件夹启动并授权。"
+                )
+            case let .failed(message):
+                showAlert(title: "刷新失败", message: message)
+            }
+        }
+    }
+
+    @objc private func refreshAccessibilityStatus() {
+        let isInstalledCopy = YSettingRuntimeIdentity.isSignedInstalledCopy(
+            expectedPath: YClipApplicationIdentity.installedApplicationPath,
+            expectedTeamIdentifier: YClipApplicationIdentity.teamIdentifier,
+            expectedBundleIdentifier: YClipApplicationIdentity.bundleIdentifier
+        )
+        let hasInstalledCopy = YSettingRuntimeIdentity.isValidSignedApplication(
+            atPath: YClipApplicationIdentity.installedApplicationPath,
+            expectedBundleIdentifier: YClipApplicationIdentity.bundleIdentifier,
+            expectedTeamIdentifier: YClipApplicationIdentity.teamIdentifier
+        )
+        runtimeIdentityPill.setText(isInstalledCopy ? "正式安装版" : "开发副本", tone: isInstalledCopy ? .success : .warning)
+        switchToInstalledButton.isHidden = isInstalledCopy
+        switchToInstalledButton.isEnabled = hasInstalledCopy
+
+        let trusted = AccessibilityPermission.isTrusted(prompt: false)
+        if trusted {
+            accessibilityStatusPill.setText("已开启", tone: .success)
+        } else if !isInstalledCopy, hasInstalledCopy {
+            accessibilityStatusPill.setText("当前副本未授权", tone: .warning)
+        } else {
+            accessibilityStatusPill.setText("未开启", tone: .warning)
+        }
+        requestAccessibilityButton.isEnabled = !trusted
     }
 
     @objc private func openGitHub() {
@@ -776,6 +1136,15 @@ private final class SettingsContentController {
         updateStatusLabel.maximumNumberOfLines = 3
     }
 
+    private func showAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "好")
+        alert.runModal()
+    }
+
     private func record(_ event: NSEvent) {
         if event.keyCode == UInt16(kVK_Escape) {
             stopRecording()
@@ -839,7 +1208,7 @@ private final class SettingsContentController {
     }
 
     private func makeHistoryLimitRow() -> NSView {
-        let unitLabel = YSettingUI.secondaryLabel("条")
+        let unitLabel = YSettingUI.rowTitle("条")
         unitLabel.maximumNumberOfLines = 1
         let controls = YSettingUI.horizontal([historyLimitField, unitLabel, historyLimitStepper], spacing: 6)
         return YSettingUI.row(title: "历史上限", trailingView: controls)

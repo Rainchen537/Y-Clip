@@ -4,12 +4,41 @@
 
 旧的 `UPDATE_LOG.local.md` 内容已迁移到本文件，后续维护记录统一写这里。
 
+## 2026-07-18
+
+- 移除误恢复的旧 `SettingsPopoverController.swift`，消除 `ClipboardPreviewView` 重复声明导致的构建失败。
+- 修复功能页旁侧预览的生命周期：功能页保持显示，关闭后以“功能”页重新打开设置时预览会恢复，App 失活后再激活也会恢复。
+- 预览可见时移动或缩放设置窗口只重排预览，不再把设置窗口弹回旧位置；切换页面或关闭设置也不再丢失用户选择的 frame。设置窗口与预览会在窄屏上联动缩放，并从上下左右可用区域中选择不越界的位置。
+- 返回 App 时自动刷新辅助功能状态；权限记录重置改为后台执行，并统一复用会清理 `accessibilityWasTrusted` 的修复流程。
+- 权限页新增运行副本诊断，按 `/Applications/Y-Clip.app` 路径、Bundle ID、代码签名有效性和 Developer ID 团队标识区分“正式安装版”与“开发副本”，并可切换到验证通过的安装版。
+- App 内和 `reset_accessibility.sh` 的 TCC 刷新均限定为 `Accessibility` 服务与 `com.lixingchen.GlobalClipboard`，不会全局重置其他 App；开发副本发起修复后不会再次请求该副本的 TCC，若有效正式版存在会切换过去并在那里引导授权。
+- 自动更新安装前使用 `YSettingRuntimeIdentity` 拒绝 symlink、错误 Bundle ID、错误团队、非 Developer ID Application 或未启用 hardened runtime 的 App，同时保留 DMG/App 的 codesign 与 Gatekeeper 验证，且不再通过清除 quarantine 代替验证。
+- `release.sh` 移除 Apple ID 字面量，改用环境变量和 notary profile 指引；打包前验证 App 的 stapled ticket，最终 DMG 挂载后验证可见 `Y-Clip.app` 与隐藏 `Global Clipboard.app` 兼容副本。
+- 共享设置框架增加屏幕可见区域约束和 sidebar identifier 校验；关于页补充产品身份。
+- 准备发布 `v1.0.14`，版本号为 `CFBundleShortVersionString=1.0.14`、`CFBundleVersion=15`，公开 changelog 日期为 `2026-07-18`。
+- 最终 Release URL、DMG SHA256，以及从最终 DMG 覆盖安装 `/Applications/Y-Clip.app` 后的验证结果，将在发布完成后追加；当前不预填尚未产生的值。
+
+## 2026-07-13
+
+- 新增项目级 `AGENTS.md`，继承 Y-Project 根规范，并记录 Y-Clip 的仓库、分支、版本字段、DMG 命名和本机安装验证要求。
+- 将“每次修改任务必须发布新版本”设为强制完成条件：签名、公证并 staple DMG，发布 GitHub Release，再从最终 DMG 覆盖安装本机 App。
+
+## 2026-07-10
+
+- 将 GitHub 仓库从 `Rainchen537/global-clipboard` 重命名为 `Rainchen537/Y-Clip`。
+- 同步更新本地 `origin`、README 仓库记录与克隆命令、项目主页链接及 GitHub Release 自动更新接口。
+
 ## 2026-06-28
 
 - 接入 `Y-Framework/Setting` 共享设置页面框架。
 - 在仓库内 vendored `Y-Framework/Setting/YSettingsFramework.swift`，避免单独 clone GitHub 仓库时缺少父级共享框架。
 - 将菜单栏入口改为简单菜单：打开设置、更多 Y-Project 占位和退出项。
 - 将原菜单栏 popover 设置页重构为独立设置窗口，采用左侧 sidebar + 右侧内容区结构。
+- 将设置页 sidebar 统一为 `通用 / 功能 / 权限 / 更新 / 关于`，旧业务分类移入右侧 section card。
+- 调整共享设置框架窗口比例、sidebar 宽度、内容内边距和卡片等宽约束；通过截图检查 Y-Clip 功能页旁侧预览与设置窗口没有遮挡。
+- 将共享设置窗口默认尺寸放大到 `1200 x 810`，并把左侧导航按钮改为居中排列；通过截图复查 Y-Clip 功能页和旁侧预览。
+- 修正 sidebar 内 App 信息区和导航区的居中方式，改为直接按 sidebar 中心线约束；移除设置页页面标题和 section card 内的静态解释性小灰字。
+- 将 sidebar App 信息区顶部间距调为 96，让 logo 保持在左侧上半部分。
 - 拆出 `ClipboardPreviewView.swift`，保留剪贴板面板设置的旁侧预览；设置窗口左右两侧哪边空间足够就显示在哪边。
 - 更新 `build.sh`，编译时加入仓库内 `Y-Framework/Setting/*.swift`，并保留父级共享框架回退路径。
 - 准备发布 `v1.0.13`，版本号更新为 `CFBundleShortVersionString=1.0.13`、`CFBundleVersion=14`，并新增用户可见 `CHANGELOG.md`。

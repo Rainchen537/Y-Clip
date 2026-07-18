@@ -9,7 +9,7 @@ APP_NAME="Y-Clip"
 LEGACY_APP_NAME="Global Clipboard"
 VOL_NAME="Y-Clip"
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_PATH="$ROOT_DIR/build/$APP_NAME.app"
+APP_PATH="${APP_PATH_OVERRIDE:-$ROOT_DIR/build/$APP_NAME.app}"
 BG_SRC="$ROOT_DIR/icon/dmg_bg.png"
 DIST_DIR="$ROOT_DIR/dist"
 DMG_FINAL="$DIST_DIR/$VOL_NAME.dmg"
@@ -21,6 +21,17 @@ WINDOW_WIDTH=640
 WINDOW_HEIGHT=400
 WINDOW_RIGHT=$((WINDOW_LEFT + WINDOW_WIDTH))
 WINDOW_BOTTOM=$((WINDOW_TOP + WINDOW_HEIGHT))
+MOUNT_DIR=""
+
+cleanup() {
+  if [[ -n "$MOUNT_DIR" ]]; then
+    hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1 || true
+    rm -rf "$MOUNT_DIR"
+  fi
+  rm -rf "$STAGE_DIR"
+  rm -f "$DMG_TMP"
+}
+trap cleanup EXIT INT TERM
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "找不到 app：$APP_PATH —— 请先执行 ./build.sh" >&2
@@ -42,11 +53,15 @@ rm -rf "$DIST_DIR"
 mkdir -p "$STAGE_DIR"
 
 # 1) 准备暂存目录内容：app + Applications 软链接 + 背景图
-cp -R "$APP_PATH" "$STAGE_DIR/"
+ditto --noextattr --noqtn "$APP_PATH" "$STAGE_DIR/$APP_NAME.app"
 if [[ "$APP_NAME" != "$LEGACY_APP_NAME" ]]; then
-  ditto "$APP_PATH" "$STAGE_DIR/$LEGACY_APP_NAME.app"
+  ditto --noextattr --noqtn "$APP_PATH" "$STAGE_DIR/$LEGACY_APP_NAME.app"
   chflags hidden "$STAGE_DIR/$LEGACY_APP_NAME.app" 2>/dev/null || true
+  xattr -cr "$STAGE_DIR/$LEGACY_APP_NAME.app"
+  codesign --verify --deep --strict --verbose=2 "$STAGE_DIR/$LEGACY_APP_NAME.app"
 fi
+xattr -cr "$STAGE_DIR/$APP_NAME.app"
+codesign --verify --deep --strict --verbose=2 "$STAGE_DIR/$APP_NAME.app"
 ln -s /Applications "$STAGE_DIR/Applications"
 mkdir -p "$STAGE_DIR/.background"
 if [[ -f "$BG_SRC" ]]; then
@@ -63,9 +78,8 @@ hdiutil create \
   "$DMG_TMP" >/dev/null
 
 # 3) 挂载
-MOUNT_DIR="/Volumes/$VOL_NAME"
-hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true
-hdiutil attach "$DMG_TMP" -readwrite -noverify -noautoopen >/dev/null
+MOUNT_DIR="$(mktemp -d /tmp/Y-Clip-dmg.XXXXXX)"
+hdiutil attach "$DMG_TMP" -mountpoint "$MOUNT_DIR" -readwrite -noverify -noautoopen >/dev/null
 sleep 2
 
 # 4) 用 Finder/AppleScript 设置窗口外观与图标布局
@@ -95,11 +109,19 @@ tell application "Finder"
 end tell
 EOF
 
+xattr -cr "$MOUNT_DIR/$APP_NAME.app"
+codesign --verify --deep --strict --verbose=2 "$MOUNT_DIR/$APP_NAME.app"
+if [[ -d "$MOUNT_DIR/$LEGACY_APP_NAME.app" ]]; then
+  xattr -cr "$MOUNT_DIR/$LEGACY_APP_NAME.app"
+  codesign --verify --deep --strict --verbose=2 "$MOUNT_DIR/$LEGACY_APP_NAME.app"
+fi
 sync
 
 # 5) 卸载
 hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || \
-  (sleep 2 && hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1) || true
+  (sleep 2 && hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1)
+rm -rf "$MOUNT_DIR"
+MOUNT_DIR=""
 
 # 6) 转成压缩只读 DMG
 rm -f "$DMG_FINAL"

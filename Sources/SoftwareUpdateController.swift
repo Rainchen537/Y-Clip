@@ -37,6 +37,14 @@ final class SoftwareUpdateController {
         }
     }
 
+    private struct UpdateValidationError: LocalizedError {
+        let message: String
+
+        var errorDescription: String? {
+            message
+        }
+    }
+
     private let latestReleaseURL = URL(string: "https://api.github.com/repos/Rainchen537/Y-Clip/releases/latest")!
     private var isChecking = false
     private var availableAssetURL: URL?
@@ -151,56 +159,239 @@ final class SoftwareUpdateController {
     }
 
     private func installAndRestart(from dmgURL: URL) {
+        var preparedApplicationURL: URL?
         do {
+            let validatedApplicationURL = try prepareIncomingApplication(from: dmgURL)
+            preparedApplicationURL = validatedApplicationURL
             let scriptURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("install-y-clip-\(UUID().uuidString).zsh")
             let script = """
             #!/bin/zsh
             set -euo pipefail
             DMG="$1"
-            DEST="/Applications/Y-Clip.app"
+            SOURCE="$2"
+            SOURCE_ROOT="$(dirname "$SOURCE")"
+            DEST="\(YClipApplicationIdentity.installedApplicationPath)"
             LEGACY_DEST="/Applications/Global Clipboard.app"
             EXEC="GlobalClipboard"
-            BUNDLE_ID="com.lixingchen.GlobalClipboard"
+            BUNDLE_ID="\(YClipApplicationIdentity.bundleIdentifier)"
+            TEAM_ID="\(YClipApplicationIdentity.teamIdentifier)"
             LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-            MOUNT="$(hdiutil attach "$DMG" -nobrowse -noautoopen | awk '/\\/Volumes\\// { for (i=3; i<=NF; i++) { printf "%s%s", (i==3 ? "" : " "), $i } print ""; exit }')"
-            APP="$MOUNT/Y-Clip.app"
-            if [[ ! -d "$APP" ]]; then
-              APP="$MOUNT/Global Clipboard.app"
-            fi
+            CANDIDATE="/Applications/.Y-Clip-update-$(uuidgen).app"
+            BACKUP="/Applications/.Y-Clip-backup-$(uuidgen).app"
+
+            cleanup() {
+              rm -rf "$CANDIDATE" "$SOURCE_ROOT"
+              rm -f "$DMG" "$0"
+            }
+            trap cleanup EXIT
+
+            validate_app() {
+              local app="$1"
+              [[ -d "$app" && ! -L "$app" ]]
+              local plist_bundle_id
+              plist_bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
+              [[ "$plist_bundle_id" == "$BUNDLE_ID" ]]
+              /usr/bin/codesign --verify --deep --strict --verbose=2 "$app" >/dev/null
+              local signature_info
+              signature_info="$(/usr/bin/codesign -dvvv "$app" 2>&1)"
+              grep -Fqx "Identifier=$BUNDLE_ID" <<< "$signature_info"
+              grep -Fqx "TeamIdentifier=$TEAM_ID" <<< "$signature_info"
+              grep -Fq "Authority=Developer ID Application:" <<< "$signature_info"
+              grep -Fq "($TEAM_ID)" <<< "$signature_info"
+              grep -q "flags=.*runtime" <<< "$signature_info"
+              /usr/sbin/spctl -a -t exec -vvv "$app" >/dev/null
+            }
+
+            validate_app "$SOURCE"
             while pgrep -x "$EXEC" >/dev/null 2>&1; do
               sleep 0.2
             done
-            if [[ -d "$DEST" ]]; then
-              find "$DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-            else
-              mkdir -p "$DEST"
+
+            /usr/bin/ditto "$SOURCE" "$CANDIDATE"
+            validate_app "$CANDIDATE"
+
+            if [[ -e "$DEST" || -L "$DEST" ]]; then
+              mv "$DEST" "$BACKUP"
             fi
-            ditto "$APP" "$DEST"
-            xattr -cr "$DEST"
-            codesign --verify --strict --verbose=2 "$DEST" >/dev/null
-            if [[ "$LEGACY_DEST" != "$DEST" && -d "$LEGACY_DEST" ]]; then
-              find "$LEGACY_DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-              rmdir "$LEGACY_DEST" 2>/dev/null || true
+            if ! mv "$CANDIDATE" "$DEST"; then
+              [[ -e "$BACKUP" || -L "$BACKUP" ]] && mv "$BACKUP" "$DEST"
+              exit 1
+            fi
+            rm -rf "$BACKUP"
+
+            if [[ "$LEGACY_DEST" != "$DEST" && ( -e "$LEGACY_DEST" || -L "$LEGACY_DEST" ) ]]; then
+              rm -rf "$LEGACY_DEST"
             fi
             [[ -x "$LSREGISTER" ]] && "$LSREGISTER" -f "$DEST" >/dev/null 2>&1 || true
             touch "$DEST"
-            hdiutil detach "$MOUNT" >/dev/null 2>&1 || hdiutil detach "$MOUNT" -force >/dev/null 2>&1 || true
-            rm -f "$DMG" "$0"
-            open -b "$BUNDLE_ID" >/dev/null 2>&1 || open "$DEST"
+            /usr/bin/open -n "$DEST" >/dev/null 2>&1 || /usr/bin/open "$DEST"
             """
             try script.write(to: scriptURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
 
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            process.arguments = [scriptURL.path, dmgURL.path]
+            process.arguments = [scriptURL.path, dmgURL.path, validatedApplicationURL.path]
             try process.run()
 
             NSApp.terminate(nil)
         } catch {
+            if let preparedApplicationURL {
+                try? FileManager.default.removeItem(at: preparedApplicationURL.deletingLastPathComponent())
+            }
+            try? FileManager.default.removeItem(at: dmgURL)
             onStatusChange?(.failed(error.localizedDescription))
         }
+    }
+
+    private func prepareIncomingApplication(from dmgURL: URL) throws -> URL {
+        try runProcess(
+            executable: "/usr/bin/codesign",
+            arguments: ["--verify", "--verbose=4", dmgURL.path],
+            failureMessage: "下载的 DMG 签名无效。"
+        )
+        try runProcess(
+            executable: "/usr/sbin/spctl",
+            arguments: ["-a", "-vvv", "-t", "open", "--context", "context:primary-signature", dmgURL.path],
+            failureMessage: "下载的 DMG 未通过 Gatekeeper 验证。"
+        )
+
+        let fileManager = FileManager.default
+        let stagingRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("YClipUpdate-\(UUID().uuidString)", isDirectory: true)
+        let mountURL = stagingRoot.appendingPathComponent("mount", isDirectory: true)
+        let preparedApplicationURL = stagingRoot.appendingPathComponent("Y-Clip.app", isDirectory: true)
+        try fileManager.createDirectory(at: mountURL, withIntermediateDirectories: true)
+        var isMounted = false
+
+        do {
+            try runProcess(
+                executable: "/usr/bin/hdiutil",
+                arguments: [
+                    "attach",
+                    dmgURL.path,
+                    "-mountpoint",
+                    mountURL.path,
+                    "-nobrowse",
+                    "-noautoopen",
+                    "-readonly"
+                ],
+                failureMessage: "无法挂载下载的 DMG。"
+            )
+            isMounted = true
+
+            let primaryApplicationURL = mountURL.appendingPathComponent("Y-Clip.app", isDirectory: true)
+            let legacyApplicationURL = mountURL.appendingPathComponent("Global Clipboard.app", isDirectory: true)
+            let incomingApplicationURL: URL
+            if fileManager.fileExists(atPath: primaryApplicationURL.path) {
+                incomingApplicationURL = primaryApplicationURL
+            } else if fileManager.fileExists(atPath: legacyApplicationURL.path) {
+                incomingApplicationURL = legacyApplicationURL
+            } else {
+                throw UpdateValidationError(message: "DMG 中没有找到 Y-Clip.app。")
+            }
+
+            guard YSettingRuntimeIdentity.isValidSignedApplication(
+                atPath: incomingApplicationURL.path,
+                expectedBundleIdentifier: YClipApplicationIdentity.bundleIdentifier,
+                expectedTeamIdentifier: YClipApplicationIdentity.teamIdentifier
+            ) else {
+                throw UpdateValidationError(
+                    message: "更新包中的 App 身份无效。必须是 Bundle ID 为 \(YClipApplicationIdentity.bundleIdentifier)、团队为 \(YClipApplicationIdentity.teamIdentifier) 的 Developer ID Application 签名，并启用 hardened runtime。"
+                )
+            }
+
+            try verifyIncomingApplication(at: incomingApplicationURL)
+            try runProcess(
+                executable: "/usr/bin/ditto",
+                arguments: [incomingApplicationURL.path, preparedApplicationURL.path],
+                failureMessage: "无法准备已验证的更新 App。"
+            )
+
+            guard YSettingRuntimeIdentity.isValidSignedApplication(
+                atPath: preparedApplicationURL.path,
+                expectedBundleIdentifier: YClipApplicationIdentity.bundleIdentifier,
+                expectedTeamIdentifier: YClipApplicationIdentity.teamIdentifier
+            ) else {
+                throw UpdateValidationError(message: "复制后的更新 App 身份验证失败。")
+            }
+            try verifyIncomingApplication(at: preparedApplicationURL)
+        } catch {
+            if isMounted {
+                _ = try? runProcess(
+                    executable: "/usr/bin/hdiutil",
+                    arguments: ["detach", mountURL.path, "-force"],
+                    failureMessage: ""
+                )
+            }
+            try? fileManager.removeItem(at: stagingRoot)
+            throw error
+        }
+
+        if isMounted {
+            do {
+                try runProcess(
+                    executable: "/usr/bin/hdiutil",
+                    arguments: ["detach", mountURL.path],
+                    failureMessage: "无法卸载更新 DMG。"
+                )
+                isMounted = false
+            } catch {
+                _ = try? runProcess(
+                    executable: "/usr/bin/hdiutil",
+                    arguments: ["detach", mountURL.path, "-force"],
+                    failureMessage: ""
+                )
+                try? fileManager.removeItem(at: stagingRoot)
+                throw error
+            }
+        }
+        try? fileManager.removeItem(at: mountURL)
+        return preparedApplicationURL
+    }
+
+    private func verifyIncomingApplication(at applicationURL: URL) throws {
+        try runProcess(
+            executable: "/usr/bin/codesign",
+            arguments: ["--verify", "--deep", "--strict", "--verbose=2", applicationURL.path],
+            failureMessage: "更新 App 未通过 codesign 验证。"
+        )
+        try runProcess(
+            executable: "/usr/sbin/spctl",
+            arguments: ["-a", "-t", "exec", "-vvv", applicationURL.path],
+            failureMessage: "更新 App 未通过 Gatekeeper 验证。"
+        )
+    }
+
+    @discardableResult
+    private func runProcess(
+        executable: String,
+        arguments: [String],
+        failureMessage: String
+    ) throws -> String {
+        let process = Process()
+        let outputPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+
+        do {
+            try process.run()
+        } catch {
+            throw UpdateValidationError(message: "\(failureMessage) \(error.localizedDescription)")
+        }
+        process.waitUntilExit()
+
+        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard process.terminationStatus == 0 else {
+            let detail = output.isEmpty ? "" : "\n\(output)"
+            throw UpdateValidationError(message: "\(failureMessage)\(detail)")
+        }
+        return output
     }
 
     private func isVersion(_ lhs: String, newerThan rhs: String) -> Bool {

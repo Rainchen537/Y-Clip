@@ -1,6 +1,6 @@
 # Y-Clip AI_CONTEXT
 
-本文件是 Y-Clip 的项目级 AI 维护说明。先阅读根目录的 `../Y_PROJECT_APP_STANDARD.me`，再阅读本文件、`CHANGELOG.me` 和 `README.md`。
+本文件是 Y-Clip 的项目级 AI 维护说明。先阅读根目录和本项目的 `AGENTS.md`、`../Y_PROJECT_APP_STANDARD.me`，再阅读本文件、`CHANGELOG.me` 和 `README.md`。
 
 ## 通用规范
 
@@ -8,6 +8,7 @@
 - 每次功能、修复、发布或发布事故处理后，追加更新到 `CHANGELOG.me`。
 - 用户可见 release 还要更新 GitHub Release；若维护公开发布历史，也同步更新面向用户的 changelog。
 - 发布 DMG 必须签名、公证、staple，并在本机安装验证。
+- 每次修改本仓库的任务都必须发布新版本并从最终 DMG 覆盖安装本机 App；只有用户明确要求不发布时才可跳过。
 - 优先通过 GitHub MCP / GitHub App 创建 GitHub Release 和上传 DMG；不可用时再用 `gh` CLI 或 GitHub Releases REST API。
 
 ## 项目简介
@@ -27,14 +28,15 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 
 - `Sources/AppDelegate.swift`：应用生命周期、菜单栏入口、热键、设置面板连接。
 - `Sources/ClipboardPanelController.swift`：剪贴板历史面板显示、定位、选择和滚动记忆。
-- `Sources/SettingsWindowController.swift`：独立设置窗口业务控制器，使用 `Y-Framework/Setting` 的统一设置页面框架。
-- `Sources/ClipboardPreviewView.swift`：设置页面旁侧剪贴板面板预览，窗口两侧哪边可显示就显示在哪边。
-- `Sources/SoftwareUpdateController.swift`：GitHub Release 自动检查、下载和安装。
+- `Sources/SettingsWindowController.swift`：独立设置窗口业务控制器，使用 `Y-Framework/Setting` 的统一设置页面框架；权限页诊断当前运行副本，并可切换到验证通过的 `/Applications/Y-Clip.app`。
+- `Sources/ClipboardPreviewView.swift`：设置页面旁侧剪贴板面板预览；功能页选中或重新打开时持续显示，并根据当前屏幕可见区域联动缩放，移动/缩放设置窗口时保留用户选择的 frame。
+- `Sources/AccessibilityPermission.swift`：辅助功能状态、系统设置入口，以及限定到本 App Bundle ID 的 Accessibility TCC 记录刷新。
+- `Sources/SoftwareUpdateController.swift`：GitHub Release 自动检查、下载和安装；替换前使用 `YSettingRuntimeIdentity` 校验 Bundle ID、Developer ID 团队与 hardened runtime，并继续执行 codesign / Gatekeeper 验证。
 - `Sources/StatusBarIcon.swift`：菜单栏线性描边小图标。
 - `Sources/ClipboardHistoryStore.swift`：剪贴板监听、历史记录、图片落盘。
 - `build.sh`：本地构建 `build/Y-Clip.app`。
 - `make_dmg.sh`：生成 `dist/Y-Clip.dmg`。
-- `release.sh`：Developer ID 签名、公证、DMG 打包、公证验证。
+- `release.sh`：Developer ID 签名、公证、DMG 打包、公证验证；打包前验证 App stapled ticket，最终 DMG 挂载后同时验证可见 App 与隐藏兼容副本。
 - `CHANGELOG.me`：AI/维护者更新记录。旧的 `UPDATE_LOG.local.md` 已迁移到此文件，后续不要再新增维护记录到旧文件。
 
 ## 构建
@@ -116,4 +118,5 @@ git push origin vX.Y.Z
 - 安装新版到 `/Applications`。
 - 启动新版。
 - 检查菜单栏图标、默认快捷键 `Option + Command + V`、文字和图片历史、自动粘贴、设置面板、开机启动和自动更新入口。
-- 如果辅助功能权限看似已开启但自动粘贴失败，使用设置里的刷新权限记录，或运行 `./reset_accessibility.sh` 后重新授权。
+- 在权限页确认当前副本状态正确；开发副本只能在 `/Applications/Y-Clip.app` 通过 Bundle ID、签名有效性和团队标识验证后提供“切换到安装版”。
+- 如果辅助功能权限看似已开启但自动粘贴失败，使用设置里的刷新权限记录，或运行 `./reset_accessibility.sh`；两者都只重置本 App 的 Accessibility TCC 记录。开发副本发起修复时不得立即向该副本重新请求 TCC；若有效的 `/Applications/Y-Clip.app` 存在，则切换到正式安装版并在那里引导授权，否则只提示先安装正式版。
