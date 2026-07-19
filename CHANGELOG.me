@@ -12,6 +12,8 @@
 - 移除旧的项目专用 `icon/DmgBgGen.swift` 和 `icon/dmg_bg.png`，避免共享框架接入后继续维护重复实现。
 - 正式安装版重启改为通过 LaunchServices 打开精确 App 路径，不再使用会强制新实例的 `open -n`。
 - 通过共享框架独立编译、Y-Clip 完整构建、DMG 生成与背景/布局截图检查；准备发布 `v1.0.15`，版本号为 `CFBundleShortVersionString=1.0.15`、`CFBundleVersion=16`。
+- 完成 `v1.0.15` 发布闭环：源码提交 `149c17dae2cf5c62f4bc81d45db554c9d1c18abe`、tag `v1.0.15`、Release `https://github.com/Rainchen537/Y-Clip/releases/tag/v1.0.15`；最终 `Y-Clip-v1.0.15.dmg` SHA256 为 `233a2942f5fe5d0658bc00633c9708dc41d945c88825f11a1459eab63ff60844`，GitHub asset 名称、下载链接和 digest 已核对一致，App 公证 ID 为 `9c11e076-e648-4491-b02c-42a8ee6d0e3f`，DMG 公证 ID 为 `be64a201-9d86-4911-94d7-2e5e2184ec10`。
+- 从上述最终 DMG 覆盖安装到 `/Applications/Y-Clip.app` 并通过 LaunchServices 启动；确认版本 `1.0.15 (16)`、Bundle ID `com.lixingchen.GlobalClipboard`、Developer ID 团队 `A94225N8T5`、hardened runtime、严格 codesign、App/DMG stapled ticket 与 Gatekeeper 均通过，且只运行一个 `GlobalClipboard` 进程。最终 DMG 中可见 `Y-Clip.app` 与隐藏 `Global Clipboard.app` 兼容副本均通过签名验证；安装版权限页显示“正式安装版”和辅助功能“已开启”，设置与更新入口正常，`Option+Command+V` 可打开历史面板，并可用 Enter 选择文本记录后自动粘贴；图像历史行为沿用本轮此前验证结果，最终安装冒烟未额外写入用户的持久剪贴板历史。
 
 ## 2026-07-18
 
