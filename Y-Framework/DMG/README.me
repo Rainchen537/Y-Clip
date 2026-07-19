@@ -1,0 +1,46 @@
+# Y-Framework / DMG
+
+`DMG` 提供 Y-Project macOS App 的统一拖拽安装镜像框架，包括动态背景、Finder 布局、Applications 链接与最终镜像复查。
+
+## 文件
+
+- `YDMGFramework.zsh`：通用打包函数 `y_dmg_build`。
+- `DmgBackgroundGenerator.swift`：按应用显示名和窗口尺寸生成背景 PNG；名称通过独立参数传入，空格和长名称不会进入 AppleScript 源码。
+
+## 接入
+
+项目保留一个很薄的 `make_dmg.sh`，设置配置后 source 框架：
+
+```zsh
+Y_DMG_APP_NAME="Example App"
+Y_DMG_APP_PATH="${APP_PATH_OVERRIDE:-$ROOT_DIR/build/Example App.app}"
+Y_DMG_VOLUME_NAME="Example App"
+Y_DMG_OUTPUT_PATH="$ROOT_DIR/dist/Example App.dmg"
+Y_DMG_HIDDEN_APP_NAMES=()
+
+source "$FRAMEWORK_DIR/YDMGFramework.zsh"
+y_dmg_build
+```
+
+独立仓库必须 vendoring `Y-Framework/DMG`；包装脚本可以在缺少 vendored 副本时回退到父目录模板。
+
+## 可选配置
+
+- `Y_DMG_BACKGROUND_TITLE`：背景标题，默认等于 App 名。
+- `Y_DMG_HIDDEN_APP_NAMES`：隐藏兼容 App 名称数组，例如 Y-Clip 的 `Global Clipboard`。
+- `Y_DMG_WINDOW_LEFT/TOP/WIDTH/HEIGHT`：Finder 窗口位置和尺寸，默认 `200/150/640/400`。
+- `Y_DMG_ICON_SIZE`：Finder 图标尺寸，默认 `128`。
+- `Y_DMG_APP_ICON_X/Y`、`Y_DMG_APPLICATIONS_ICON_X/Y`：两枚图标位置。
+
+## 框架保证
+
+- 所有工作目录和中间镜像均使用本次调用独有的临时目录；镜像由 macOS 正常挂载到 `/Volumes`，框架从 `hdiutil -plist` 读取实际挂载路径并负责卸载。
+- 只在最终成功时原子替换指定输出文件，不删除整个 `dist`。
+- App、卷名和兼容名称通过 shell 数组或 AppleScript 参数传递，支持空格且不拼接到脚本源码。
+- 背景始终按 Finder 窗口像素尺寸重新生成并用 `sips` 校验。
+- Finder 通过实际挂载路径的 folder alias 定位，不猜测卷名或挂载点显示名。
+- 布局失败、`.DS_Store` 未生成、背景未保存、图标位置错误都会终止打包。
+- 兼容 App 通过卷根目录的 `.hidden` 清单隐藏，避免给已签名 App 写入 `com.apple.FinderInfo` 而破坏严格签名验证。
+- 压缩后的最终 DMG 会重新只读挂载，复查 App、Applications 链接、隐藏兼容副本、背景和图标位置。
+
+签名、公证、staple 与 GitHub Release 仍由各 App 的 `release.sh` 负责。

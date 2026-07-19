@@ -2,6 +2,12 @@
 
 All notable Y-Clip release changes are tracked here.
 
+## v1.0.15 - 2026-07-19
+
+- Unified first-launch and later Accessibility guidance through the shared Y-Project permission prompt framework, including signed installed-copy checks, state-based duplicate suppression, and the existing app-scoped repair flow.
+- Replaced the project-specific DMG layout code with the shared Y-Project DMG framework, which generates the correct product title, validates the saved Finder background and icon layout, and preserves the hidden `Global Clipboard.app` compatibility copy.
+- Relaunches now use LaunchServices without forcing a second app instance.
+
 ## v1.0.14 - 2026-07-18
 
 - Kept the Features preview visible while selected, restored it when reopening Settings, and preserved user-chosen window frames while adapting the settings/preview pair to narrow screens.

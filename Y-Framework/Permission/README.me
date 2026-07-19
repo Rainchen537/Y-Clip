@@ -1,0 +1,38 @@
+# Y-Framework / Permission
+
+`Permission` 提供 Y-Project App 共用的权限弹窗外观和呈现协调，不直接调用任何 TCC API。
+
+## 职责边界
+
+框架负责：
+
+- 首次启动时汇总仍未完成的权限。
+- 后续只提示当前第一项未完成权限；授权状态改变后自动推进到下一项。
+- 对相同的运行副本与权限状态生成持久化指纹，避免反复弹出完全相同的警告。
+- 统一 `missing / restartRequired / granted` 三态、按钮数量和“稍后”行为。
+- 在设置预览模式下禁止模态弹窗。
+- 在请求 TCC 前检查接入方提供的正式安装副本状态，并支持切换到验证通过的安装版。
+
+App 项目继续负责：
+
+- 使用公开 API 查询和请求 Accessibility、Input Monitoring、Screen Recording 等权限。
+- 提供 System Settings URL。
+- 决定何时需要重启、何时定向执行 `tccutil reset`。
+- 提供产品文案、权限用途、安装路径和安全的正式版切换动作。
+
+## 主要类型
+
+- `YPermissionPromptState`
+- `YPermissionPromptAction`
+- `YPermissionPromptDescriptor`
+- `YPermissionRuntimeDescriptor`
+- `YPermissionPromptConfiguration`
+- `YPermissionPromptCoordinator`
+
+## 接入原则
+
+每个权限使用一个稳定 identifier 和状态闭包。请求、打开设置、重启及修复都通过 `YPermissionPromptAction` 注入。App 启动后调用 `presentInitialGuidanceIfNeeded`；重新激活、监听器启动失败或用户触发依赖权限的功能时调用 `presentMissingPermissionIfNeeded`。
+
+显式用户操作可以传 `force: true`；普通生命周期检查保持默认值，以便框架按状态指纹去重。权限记录被重置后调用 `resetPresentationHistory`。
+
+独立 App 仓库必须 vendoring `Y-Framework/Permission/YPermissionPromptFramework.swift`，并加入对应编译源或 Xcode target Sources。

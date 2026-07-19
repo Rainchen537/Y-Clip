@@ -37,7 +37,7 @@
 
 ### 方式一：下载安装包（推荐）
 
-1. 前往 [**Releases**](../../releases/latest) 下载最新的 [`Y-Clip-v1.0.14.dmg`](https://github.com/Rainchen537/Y-Clip/releases/download/v1.0.14/Y-Clip-v1.0.14.dmg)
+1. 前往 [**Releases**](../../releases/latest) 下载最新的 [`Y-Clip-v1.0.15.dmg`](https://github.com/Rainchen537/Y-Clip/releases/download/v1.0.15/Y-Clip-v1.0.15.dmg)
 2. 双击打开，把 **Y-Clip** 拖进 **应用程序** 文件夹
 3. 从启动台或应用程序文件夹打开即可
 
@@ -58,7 +58,7 @@ cd Y-Clip
 
 ## 🔐 权限说明
 
-首次选择历史记录自动粘贴时，macOS 会要求开启 **「辅助功能」** 权限 —— 这是模拟 `⌘ + V` 粘贴所必需的，所有同类工具都一样。
+首次启动时 Y-Clip 会统一说明所需的 **「辅助功能」** 权限；选择历史记录自动粘贴时，macOS 会要求完成授权 —— 这是模拟 `⌘ + V` 粘贴所必需的，所有同类工具都一样。后续只在运行副本或权限状态变化时提示当前未完成步骤，不会反复弹出完全相同的警告。
 
 > 系统设置 → 隐私与安全性 → 辅助功能 → 勾选 **Y-Clip**
 

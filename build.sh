@@ -58,13 +58,20 @@ if [[ -f "$ROOT_DIR/icon/AppIcon.icns" ]]; then
   cp "$ROOT_DIR/icon/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 fi
 
-FRAMEWORK_DIR="$ROOT_DIR/Y-Framework/Setting"
-if [[ ! -d "$FRAMEWORK_DIR" ]]; then
-  FRAMEWORK_DIR="$ROOT_DIR/../Y-Framework/Setting"
+SETTING_FRAMEWORK_DIR="$ROOT_DIR/Y-Framework/Setting"
+PERMISSION_FRAMEWORK_DIR="$ROOT_DIR/Y-Framework/Permission"
+if [[ ! -d "$SETTING_FRAMEWORK_DIR" ]]; then
+  SETTING_FRAMEWORK_DIR="$ROOT_DIR/../Y-Framework/Setting"
 fi
-FRAMEWORK_SOURCES=("$FRAMEWORK_DIR"/*.swift(N))
-if (( ${#FRAMEWORK_SOURCES[@]} == 0 )); then
-  echo "错误：找不到 Y-Framework/Setting Swift 源文件。" >&2
+if [[ ! -d "$PERMISSION_FRAMEWORK_DIR" ]]; then
+  PERMISSION_FRAMEWORK_DIR="$ROOT_DIR/../Y-Framework/Permission"
+fi
+FRAMEWORK_SOURCES=(
+  "$SETTING_FRAMEWORK_DIR"/*.swift(N)
+  "$PERMISSION_FRAMEWORK_DIR"/*.swift(N)
+)
+if (( ${#FRAMEWORK_SOURCES[@]} < 2 )); then
+  echo "错误：找不到 Y-Framework/Setting 或 Permission Swift 源文件。" >&2
   exit 1
 fi
 

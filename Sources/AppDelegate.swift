@@ -5,6 +5,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var historyStore = ClipboardHistoryStore(maxItems: settingsStore.maxHistoryItems)
     private let softwareUpdateController = SoftwareUpdateController()
     private let panelController = ClipboardPanelController()
+    private lazy var permissionPromptCoordinator = YPermissionPromptCoordinator(
+        configuration: YPermissionPromptConfiguration(
+            appName: "Y-Clip",
+            persistenceNamespace: YClipApplicationIdentity.bundleIdentifier
+        )
+    )
     private var hotKeyController: HotKeyController?
     private var settingsWindowController: SettingsWindowController?
     private var statusItem: NSStatusItem?
@@ -22,7 +28,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotKey(settingsStore.hotKey)
         scheduleAutomaticUpdateCheckIfNeeded()
         rememberAccessibilityTrustIfNeeded()
+        let wasAccessibilityRepairPending = settingsStore.accessibilityRepairPending
         continuePendingAccessibilityRepairIfNeeded()
+        if !wasAccessibilityRepairPending {
+            permissionPromptCoordinator.presentInitialGuidanceIfNeeded(
+                permissions: permissionDescriptors,
+                runtime: permissionRuntimeDescriptor
+            )
+        }
 
         // 让面板能根据图片项找到磁盘上的全图，用于生成缩略图。
         panelController.imageURLProvider = { [weak self] payload in
@@ -39,6 +52,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         showSettingsForPreviewIfRequested()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        if AccessibilityPermission.isTrusted(prompt: false) {
+            settingsStore.accessibilityWasTrusted = true
+        }
+        permissionPromptCoordinator.presentMissingPermissionIfNeeded(
+            permissions: permissionDescriptors,
+            runtime: permissionRuntimeDescriptor
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -248,6 +271,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var permissionDescriptors: [YPermissionPromptDescriptor] {
+        [
+            YPermissionPromptDescriptor(
+                identifier: "accessibility",
+                displayName: "辅助功能权限",
+                explanation: "用于将已选择的剪贴板内容自动粘贴到当前 App。",
+                settingsLocation: "System Settings → Privacy & Security → Accessibility",
+                state: {
+                    AccessibilityPermission.isTrusted(prompt: false)
+                        ? .granted
+                        : .missing
+                },
+                requestAction: YPermissionPromptAction(
+                    title: "打开系统设置",
+                    perform: {
+                        AccessibilityPermission.requestPrompt()
+                        AccessibilityPermission.openSettings()
+                    }
+                ),
+                openSettingsAction: YPermissionPromptAction(
+                    title: "打开系统设置",
+                    perform: {
+                        AccessibilityPermission.requestPrompt()
+                        AccessibilityPermission.openSettings()
+                    }
+                ),
+                repairAction: YPermissionPromptAction(
+                    title: "刷新权限记录",
+                    perform: { [weak self] in
+                        self?.refreshAccessibilityAuthorization()
+                    }
+                ),
+                prefersRepairWhenMissing: { [weak self] in
+                    self?.settingsStore.accessibilityWasTrusted == true
+                }
+            )
+        ]
+    }
+
+    private var permissionRuntimeDescriptor: YPermissionRuntimeDescriptor {
+        YPermissionRuntimeDescriptor(
+            installedApplicationPath: YClipApplicationIdentity.installedApplicationPath,
+            isRunningPreferredCopy: {
+                YSettingRuntimeIdentity.isSignedInstalledCopy(
+                    expectedPath: YClipApplicationIdentity.installedApplicationPath,
+                    expectedTeamIdentifier: YClipApplicationIdentity.teamIdentifier,
+                    expectedBundleIdentifier: YClipApplicationIdentity.bundleIdentifier
+                )
+            },
+            hasPreferredCopy: {
+                YSettingRuntimeIdentity.isValidSignedApplication(
+                    atPath: YClipApplicationIdentity.installedApplicationPath,
+                    expectedBundleIdentifier: YClipApplicationIdentity.bundleIdentifier,
+                    expectedTeamIdentifier: YClipApplicationIdentity.teamIdentifier
+                )
+            },
+            switchAction: YPermissionPromptAction(
+                title: "切换到安装版",
+                perform: { [weak self] in
+                    self?.relaunchInstalledApplication(
+                        errorTitle: "无法切换到正式安装版"
+                    )
+                }
+            )
+        )
+    }
+
     private func usableAnchorPoint(_ point: NSPoint?) -> NSPoint {
         guard let point else {
             return NSEvent.mouseLocation
@@ -276,34 +366,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let alert = NSAlert()
-        let wasTrustedBefore = settingsStore.accessibilityWasTrusted
-
-        if wasTrustedBefore {
-            alert.messageText = "辅助功能权限需要刷新"
-            alert.informativeText = "macOS 在应用更新后有时会保留旧的辅助功能记录，导致系统设置里看起来已开启，但当前版本实际无法发送粘贴快捷键。可以先刷新这条记录，再重新勾选 Y-Clip。"
-            alert.addButton(withTitle: "刷新权限记录")
-            alert.addButton(withTitle: "打开系统设置")
-            alert.addButton(withTitle: "稍后")
-        } else {
-            alert.messageText = "已复制到剪贴板"
-            alert.informativeText = "当前还没有授予辅助功能权限，所以暂时不会自动粘贴。若系统设置里看起来已经开启但仍不生效，可以先刷新权限记录。"
-            alert.addButton(withTitle: "打开系统设置")
-            alert.addButton(withTitle: "刷新权限记录")
-            alert.addButton(withTitle: "稍后")
-        }
-
-        alert.alertStyle = .informational
-
-        let response = alert.runModal()
-        if wasTrustedBefore, response == .alertFirstButtonReturn {
-            refreshAccessibilityAuthorization()
-        } else if response == (wasTrustedBefore ? .alertSecondButtonReturn : .alertFirstButtonReturn) {
-            AccessibilityPermission.requestPrompt()
-            AccessibilityPermission.openSettings()
-        } else if !wasTrustedBefore, response == .alertSecondButtonReturn {
-            refreshAccessibilityAuthorization()
-        }
+        permissionPromptCoordinator.presentMissingPermissionIfNeeded(
+            permissions: permissionDescriptors,
+            runtime: permissionRuntimeDescriptor,
+            reason: settingsStore.accessibilityWasTrusted
+                ? "macOS 在应用更新后有时会保留旧的辅助功能记录，导致系统设置看起来已开启，但当前版本仍无法自动粘贴。"
+                : "内容已经复制到剪贴板，但当前还不能自动粘贴。",
+            force: true
+        )
     }
 
     private func refreshAccessibilityAuthorization(completion: ((AccessibilityRepairResult) -> Void)? = nil) {
@@ -313,6 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DispatchQueue.main.async {
                     guard let self else { return }
                     self.settingsStore.accessibilityWasTrusted = false
+                    self.permissionPromptCoordinator.resetPresentationHistory()
                     self.finishAccessibilityRepair(completion: completion)
                 }
             } catch {
@@ -393,16 +464,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         settingsStore.accessibilityRepairPending = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            NSApp.activate(ignoringOtherApps: true)
-            let alert = NSAlert()
-            alert.alertStyle = .informational
-            alert.messageText = "已切换到正式安装版"
-            alert.informativeText = "Y-Clip 已从 /Applications 重新启动。接下来请在系统设置中重新允许辅助功能权限。"
-            alert.addButton(withTitle: "打开系统设置")
-            alert.runModal()
-            AccessibilityPermission.requestPrompt()
-            AccessibilityPermission.openSettings()
+        permissionPromptCoordinator.resetPresentationHistory()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self else { return }
+            self.permissionPromptCoordinator.presentMissingPermissionIfNeeded(
+                permissions: self.permissionDescriptors,
+                runtime: self.permissionRuntimeDescriptor,
+                reason: "Y-Clip 已从 /Applications 重新启动。请在系统设置中重新允许辅助功能权限。",
+                force: true
+            )
+        }
+    }
+
+    private func relaunchInstalledApplication(errorTitle: String) {
+        do {
+            try YSettingRuntimeIdentity.relaunchInstalledApplication(
+                atPath: YClipApplicationIdentity.installedApplicationPath,
+                expectedBundleIdentifier: YClipApplicationIdentity.bundleIdentifier,
+                expectedTeamIdentifier: YClipApplicationIdentity.teamIdentifier
+            )
+        } catch {
+            showAlert(title: errorTitle, message: error.localizedDescription)
         }
     }
 

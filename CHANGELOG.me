@@ -4,6 +4,15 @@
 
 旧的 `UPDATE_LOG.local.md` 内容已迁移到本文件，后续维护记录统一写这里。
 
+## 2026-07-19
+
+- 接入仓库内 vendored 的 `Y-Framework/Permission`，把首次启动权限汇总、后续缺失权限提示、状态指纹去重、正式安装副本检查和权限修复动作统一交给共享协调器；实际 Accessibility 查询、定向 TCC 刷新和产品文案仍保留在 Y-Clip。
+- 接入仓库内 vendored 的 `Y-Framework/DMG`，`make_dmg.sh` 仅保留产品配置；背景按 Y-Clip 名称动态生成，Finder 布局、`.DS_Store` 背景记录、Applications 链接、签名和最终只读重挂载均由框架验证。
+- Y-Clip 的 `Global Clipboard.app` 兼容副本继续保留，并通过卷根目录 `.hidden` 清单隐藏，避免 FinderInfo 扩展属性破坏严格代码签名验证；已通过 Finder 截图确认兼容副本不显示。
+- 移除旧的项目专用 `icon/DmgBgGen.swift` 和 `icon/dmg_bg.png`，避免共享框架接入后继续维护重复实现。
+- 正式安装版重启改为通过 LaunchServices 打开精确 App 路径，不再使用会强制新实例的 `open -n`。
+- 通过共享框架独立编译、Y-Clip 完整构建、DMG 生成与背景/布局截图检查；准备发布 `v1.0.15`，版本号为 `CFBundleShortVersionString=1.0.15`、`CFBundleVersion=16`。
+
 ## 2026-07-18
 
 - 移除误恢复的旧 `SettingsPopoverController.swift`，消除 `ClipboardPreviewView` 重复声明导致的构建失败。

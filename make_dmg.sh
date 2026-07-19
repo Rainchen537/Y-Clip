@@ -1,134 +1,21 @@
 #!/bin/zsh
 set -euo pipefail
 
-# 打包可分发的 DMG：标准拖拽安装窗口（App 图标 → 应用程序文件夹）。
-# 依赖：已先执行 ./build.sh 生成 build/Y-Clip.app
-# 用法：./make_dmg.sh
-
-APP_NAME="Y-Clip"
-LEGACY_APP_NAME="Global Clipboard"
-VOL_NAME="Y-Clip"
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_PATH="${APP_PATH_OVERRIDE:-$ROOT_DIR/build/$APP_NAME.app}"
-BG_SRC="$ROOT_DIR/icon/dmg_bg.png"
-DIST_DIR="$ROOT_DIR/dist"
-DMG_FINAL="$DIST_DIR/$VOL_NAME.dmg"
-DMG_TMP="$DIST_DIR/.tmp_$VOL_NAME.dmg"
-STAGE_DIR="$DIST_DIR/.stage"
-WINDOW_LEFT=200
-WINDOW_TOP=150
-WINDOW_WIDTH=640
-WINDOW_HEIGHT=400
-WINDOW_RIGHT=$((WINDOW_LEFT + WINDOW_WIDTH))
-WINDOW_BOTTOM=$((WINDOW_TOP + WINDOW_HEIGHT))
-MOUNT_DIR=""
-
-cleanup() {
-  if [[ -n "$MOUNT_DIR" ]]; then
-    hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1 || true
-    rm -rf "$MOUNT_DIR"
-  fi
-  rm -rf "$STAGE_DIR"
-  rm -f "$DMG_TMP"
-}
-trap cleanup EXIT INT TERM
-
-if [[ ! -d "$APP_PATH" ]]; then
-  echo "找不到 app：$APP_PATH —— 请先执行 ./build.sh" >&2
+FRAMEWORK_DIR="$ROOT_DIR/Y-Framework/DMG"
+if [[ ! -d "$FRAMEWORK_DIR" ]]; then
+  FRAMEWORK_DIR="$ROOT_DIR/../Y-Framework/DMG"
+fi
+if [[ ! -f "$FRAMEWORK_DIR/YDMGFramework.zsh" ]]; then
+  echo "错误：找不到 Y-Framework/DMG。" >&2
   exit 1
 fi
 
-if [[ ! -f "$BG_SRC" ]]; then
-  xcrun swift "$ROOT_DIR/icon/DmgBgGen.swift" "$BG_SRC"
-else
-  BG_WIDTH="$(sips -g pixelWidth "$BG_SRC" 2>/dev/null | awk '/pixelWidth/ { print $2; exit }')"
-  BG_HEIGHT="$(sips -g pixelHeight "$BG_SRC" 2>/dev/null | awk '/pixelHeight/ { print $2; exit }')"
-  if [[ "$BG_WIDTH" != "$WINDOW_WIDTH" || "$BG_HEIGHT" != "$WINDOW_HEIGHT" ]]; then
-    echo "背景图尺寸为 ${BG_WIDTH}×${BG_HEIGHT}，重新生成 ${WINDOW_WIDTH}×${WINDOW_HEIGHT}…" >&2
-    xcrun swift "$ROOT_DIR/icon/DmgBgGen.swift" "$BG_SRC"
-  fi
-fi
+Y_DMG_APP_NAME="Y-Clip"
+Y_DMG_APP_PATH="${APP_PATH_OVERRIDE:-$ROOT_DIR/build/Y-Clip.app}"
+Y_DMG_VOLUME_NAME="Y-Clip"
+Y_DMG_OUTPUT_PATH="$ROOT_DIR/dist/Y-Clip.dmg"
+Y_DMG_HIDDEN_APP_NAMES=("Global Clipboard")
 
-rm -rf "$DIST_DIR"
-mkdir -p "$STAGE_DIR"
-
-# 1) 准备暂存目录内容：app + Applications 软链接 + 背景图
-ditto --noextattr --noqtn "$APP_PATH" "$STAGE_DIR/$APP_NAME.app"
-if [[ "$APP_NAME" != "$LEGACY_APP_NAME" ]]; then
-  ditto --noextattr --noqtn "$APP_PATH" "$STAGE_DIR/$LEGACY_APP_NAME.app"
-  chflags hidden "$STAGE_DIR/$LEGACY_APP_NAME.app" 2>/dev/null || true
-  xattr -cr "$STAGE_DIR/$LEGACY_APP_NAME.app"
-  codesign --verify --deep --strict --verbose=2 "$STAGE_DIR/$LEGACY_APP_NAME.app"
-fi
-xattr -cr "$STAGE_DIR/$APP_NAME.app"
-codesign --verify --deep --strict --verbose=2 "$STAGE_DIR/$APP_NAME.app"
-ln -s /Applications "$STAGE_DIR/Applications"
-mkdir -p "$STAGE_DIR/.background"
-if [[ -f "$BG_SRC" ]]; then
-  cp "$BG_SRC" "$STAGE_DIR/.background/bg.png"
-fi
-
-# 2) 创建可写 DMG（按内容大小自适应 + 余量）
-hdiutil create \
-  -srcfolder "$STAGE_DIR" \
-  -volname "$VOL_NAME" \
-  -fs HFS+ \
-  -format UDRW \
-  -ov \
-  "$DMG_TMP" >/dev/null
-
-# 3) 挂载
-MOUNT_DIR="$(mktemp -d /tmp/Y-Clip-dmg.XXXXXX)"
-hdiutil attach "$DMG_TMP" -mountpoint "$MOUNT_DIR" -readwrite -noverify -noautoopen >/dev/null
-sleep 2
-
-# 4) 用 Finder/AppleScript 设置窗口外观与图标布局
-# 失败不致命：无 GUI 会话或未授权控制 Finder 时，跳过美化仍能产出可用 DMG。
-osascript <<EOF || echo "（提示：Finder 布局设置被跳过，DMG 仍可正常使用）"
-set bgFile to POSIX file "$MOUNT_DIR/.background/bg.png" as alias
-tell application "Finder"
-  tell disk "$VOL_NAME"
-    open
-    delay 1
-    set current view of container window to icon view
-    set toolbar visible of container window to false
-    set statusbar visible of container window to false
-    set the bounds of container window to {$WINDOW_LEFT, $WINDOW_TOP, $WINDOW_RIGHT, $WINDOW_BOTTOM}
-    set theViewOptions to the icon view options of container window
-    set arrangement of theViewOptions to not arranged
-    set icon size of theViewOptions to 128
-    set background picture of theViewOptions to bgFile
-    set position of item "$APP_NAME.app" of container window to {165, 200}
-    set position of item "Applications" of container window to {475, 200}
-    set position of item ".background" of container window to {900, 900}
-    close
-    open
-    update without registering applications
-    delay 1
-  end tell
-end tell
-EOF
-
-xattr -cr "$MOUNT_DIR/$APP_NAME.app"
-codesign --verify --deep --strict --verbose=2 "$MOUNT_DIR/$APP_NAME.app"
-if [[ -d "$MOUNT_DIR/$LEGACY_APP_NAME.app" ]]; then
-  xattr -cr "$MOUNT_DIR/$LEGACY_APP_NAME.app"
-  codesign --verify --deep --strict --verbose=2 "$MOUNT_DIR/$LEGACY_APP_NAME.app"
-fi
-sync
-
-# 5) 卸载
-hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || \
-  (sleep 2 && hdiutil detach "$MOUNT_DIR" -force >/dev/null 2>&1)
-rm -rf "$MOUNT_DIR"
-MOUNT_DIR=""
-
-# 6) 转成压缩只读 DMG
-rm -f "$DMG_FINAL"
-hdiutil convert "$DMG_TMP" -format UDZO -imagekey zlib-level=9 -o "$DMG_FINAL" >/dev/null
-rm -f "$DMG_TMP"
-rm -rf "$STAGE_DIR"
-
-echo "已生成：$DMG_FINAL"
-hdiutil imageinfo "$DMG_FINAL" -format 2>/dev/null | head -1 || true
-ls -lh "$DMG_FINAL"
+source "$FRAMEWORK_DIR/YDMGFramework.zsh"
+y_dmg_build

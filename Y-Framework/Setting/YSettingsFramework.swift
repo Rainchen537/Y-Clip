@@ -88,7 +88,7 @@ enum YSettingRuntimeIdentity {
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = [
             "-c",
-            "while /bin/kill -0 \"$1\" 2>/dev/null; do /bin/sleep 0.1; done; /usr/bin/open -n \"$2\"",
+            "while /bin/kill -0 \"$1\" 2>/dev/null; do /bin/sleep 0.1; done; /usr/bin/open \"$2\"",
             "y-project-relaunch",
             "\(ProcessInfo.processInfo.processIdentifier)",
             path

@@ -26,7 +26,7 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 
 ## 关键文件
 
-- `Sources/AppDelegate.swift`：应用生命周期、菜单栏入口、热键、设置面板连接。
+- `Sources/AppDelegate.swift`：应用生命周期、菜单栏入口、热键、设置面板连接，以及向共享权限协调器注入 Y-Clip 的 Accessibility 状态与修复动作。
 - `Sources/ClipboardPanelController.swift`：剪贴板历史面板显示、定位、选择和滚动记忆。
 - `Sources/SettingsWindowController.swift`：独立设置窗口业务控制器，使用 `Y-Framework/Setting` 的统一设置页面框架；权限页诊断当前运行副本，并可切换到验证通过的 `/Applications/Y-Clip.app`。
 - `Sources/ClipboardPreviewView.swift`：设置页面旁侧剪贴板面板预览；功能页选中或重新打开时持续显示，并根据当前屏幕可见区域联动缩放，移动/缩放设置窗口时保留用户选择的 frame。
@@ -34,14 +34,16 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 - `Sources/SoftwareUpdateController.swift`：GitHub Release 自动检查、下载和安装；替换前使用 `YSettingRuntimeIdentity` 校验 Bundle ID、Developer ID 团队与 hardened runtime，并继续执行 codesign / Gatekeeper 验证。
 - `Sources/StatusBarIcon.swift`：菜单栏线性描边小图标。
 - `Sources/ClipboardHistoryStore.swift`：剪贴板监听、历史记录、图片落盘。
-- `build.sh`：本地构建 `build/Y-Clip.app`。
-- `make_dmg.sh`：生成 `dist/Y-Clip.dmg`。
+- `build.sh`：本地构建 `build/Y-Clip.app`，同时编译 vendored 的 Setting 与 Permission Swift 框架。
+- `make_dmg.sh`：共享 DMG 框架的薄配置入口，生成 `dist/Y-Clip.dmg`。
+- `Y-Framework/Permission/YPermissionPromptFramework.swift`：首次启动与后续权限弹窗、状态指纹和正式安装副本防护。
+- `Y-Framework/DMG/`：动态背景、Finder 布局、兼容副本隐藏和最终镜像复查。
 - `release.sh`：Developer ID 签名、公证、DMG 打包、公证验证；打包前验证 App stapled ticket，最终 DMG 挂载后同时验证可见 App 与隐藏兼容副本。
 - `CHANGELOG.me`：AI/维护者更新记录。旧的 `UPDATE_LOG.local.md` 已迁移到此文件，后续不要再新增维护记录到旧文件。
 
 ## 构建
 
-本项目没有 Xcode 工程，直接用 `swiftc` 编译仓库内 `Y-Framework/Setting/*.swift` 和所有 `Sources/*.swift`。本地 Y-Project 工作区缺少仓库内副本时，`build.sh` 会回退到 `../Y-Framework/Setting/*.swift`。
+本项目没有 Xcode 工程，直接用 `swiftc` 编译仓库内 `Y-Framework/Setting/*.swift`、`Y-Framework/Permission/*.swift` 和所有 `Sources/*.swift`。本地 Y-Project 工作区缺少仓库内副本时，`build.sh` 会分别回退到父目录共享框架。
 
 ```zsh
 ./build.sh
@@ -71,7 +73,7 @@ build/Y-Clip.app
 dist/Y-Clip.dmg
 ```
 
-注意：为了兼容旧版自动更新器，DMG 内除了可见的 `Y-Clip.app`，还会放一个隐藏的 `Global Clipboard.app` 兼容副本。旧版自动更新脚本会寻找这个旧路径。
+注意：为了兼容旧版自动更新器，DMG 内除了可见的 `Y-Clip.app`，还会放一个由卷根目录 `.hidden` 清单隐藏的 `Global Clipboard.app` 兼容副本。不得用 FinderInfo 隐藏标志修改已签名 App；旧版自动更新脚本会寻找这个旧路径。
 
 ## 发布到 GitHub
 
