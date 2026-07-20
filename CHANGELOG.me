@@ -12,6 +12,10 @@
 - 使用当前正式安装的 Y-Clip App 完成包含 `Global Clipboard.app` 兼容副本的完整测试 DMG：最终 UDZO 镜像重挂载后，两份 App 的严格签名和 hidden 状态、背景物理分辨率/DPI、元数据缺失、窗口栏状态、可见图标与兼容图标完整坐标均通过自动断言；深色系统外观截图确认黑色名称清晰、箭头居中且兼容副本不覆盖布局。
 - 准备发布 `v1.0.16`，版本号为 `CFBundleShortVersionString=1.0.16`、`CFBundleVersion=17`；README、公开 changelog 和维护说明已同步。
 - 基于最终源码生成并验证本次全新 `Y-Clip-v1.0.16.dmg`：App 公证 ID 为 `95547993-a7e9-4882-876d-57429ba43be2`，DMG 公证 ID 为 `f7fac22d-2849-4b10-a68f-979587ab8528`，SHA256 为 `ce74a206533c7a7ac130e883767ef3649f57fdf4f73dff7529f38a865417749e`。DMG 首次时间戳签名遇到 Apple timestamp 服务瞬时不可用，随后对同一本次新生成镜像重试成功；DMG 与两份 App 的严格签名、stapled ticket、Gatekeeper、BSD hidden 和 `hdiutil verify` 均通过。
+- 完成 `v1.0.16` 发布闭环：对应源码提交 `5690b4e4b2eaca11340bbb050cf0111b8023f67a`、tag `v1.0.16`、Release `https://github.com/Rainchen537/Y-Clip/releases/tag/v1.0.16`。GitHub Release 的 tag、标题、真实换行 release notes、资产 `Y-Clip-v1.0.16.dmg`、下载链接和 asset digest 均已复核，远端 digest 与本地 SHA256 完全一致。
+- 从上述最终签名、公证并 stapled 的 DMG 覆盖安装到 `/Applications/Y-Clip.app` 并启动；确认正式安装版为 `1.0.16 (17)`、Bundle ID `com.lixingchen.GlobalClipboard`、`LSUIElement=true`、Developer ID 团队 `A94225N8T5`，hardened runtime、严格 codesign、App/DMG stapled ticket 与 Gatekeeper 均通过。
+- 最终安装版菜单栏入口、默认 `Option+Command+V`、历史面板及 Esc 关闭已验证；AX tree 同时包含文字和图片历史。使用 disposable NSTextView Probe 选择当前首项后，焦点恢复和自动 Command-V 成功，只记录 `changed length=5334`，未输出剪贴板内容，也未改变持久历史顺序。
+- 设置页确认 `Y-Clip v1.0.16`、当前副本为“正式安装版”、辅助功能“已开启”；更新页显示 GitHub Release 渠道并成功确认“已是最新版 1.0.16”。
 
 ## 2026-07-19
 
