@@ -5,7 +5,7 @@
 ## 文件
 
 - `YDMGFramework.zsh`：通用打包函数 `y_dmg_build`。
-- `DmgBackgroundGenerator.swift`：按应用显示名和窗口尺寸生成背景 PNG；名称通过独立参数传入，空格和长名称不会进入 AppleScript 源码。
+- `DmgBackgroundGenerator.swift`：按应用显示名、窗口尺寸和真实图标坐标生成浅色 Retina 背景 PNG；名称与布局通过独立参数传入，空格和长名称不会进入 AppleScript 源码。
 
 ## 接入
 
@@ -28,19 +28,24 @@ y_dmg_build
 
 - `Y_DMG_BACKGROUND_TITLE`：背景标题，默认等于 App 名。
 - `Y_DMG_HIDDEN_APP_NAMES`：隐藏兼容 App 名称数组，例如 Y-Clip 的 `Global Clipboard`。
-- `Y_DMG_WINDOW_LEFT/TOP/WIDTH/HEIGHT`：Finder 窗口位置和尺寸，默认 `200/150/640/400`。
+- `Y_DMG_WINDOW_LEFT/TOP/WIDTH/HEIGHT`：Finder 窗口位置和逻辑点尺寸，默认 `200/150/640/400`。
+- `Y_DMG_BACKGROUND_SCALE`：背景像素缩放倍率，允许 `1...4`，默认 `2`；默认背景为 `1280×800`、`144 DPI`，Finder 中仍按 `640×400` points 显示。
 - `Y_DMG_ICON_SIZE`：Finder 图标尺寸，默认 `128`。
-- `Y_DMG_APP_ICON_X/Y`、`Y_DMG_APPLICATIONS_ICON_X/Y`：两枚图标位置。
+- `Y_DMG_APP_ICON_X/Y`、`Y_DMG_APPLICATIONS_ICON_X/Y`：两枚图标位置；背景箭头按这些坐标和图标尺寸动态计算。
 
 ## 框架保证
 
-- 所有工作目录和中间镜像均使用本次调用独有的临时目录；镜像由 macOS 正常挂载到 `/Volumes`，框架从 `hdiutil -plist` 读取实际挂载路径并负责卸载。
+- 所有工作目录和中间镜像均使用本次调用独有的临时目录；镜像由 macOS 正常挂载到 `/Volumes`，框架从 `hdiutil -plist` 读取实际挂载路径和设备节点，并按设备节点重试卸载。
+- 镜像文件系统使用 APFS，符合各 App 的 macOS 13+ 最低版本，并能在不生成 FinderInfo 扩展属性的情况下持久保存兼容 App 的 BSD `hidden` 标志和严格代码签名。
 - 只在最终成功时原子替换指定输出文件，不删除整个 `dist`。
 - App、卷名和兼容名称通过 shell 数组或 AppleScript 参数传递，支持空格且不拼接到脚本源码。
-- 背景始终按 Finder 窗口像素尺寸重新生成并用 `sips` 校验。
-- Finder 通过实际挂载路径的 folder alias 定位，不猜测卷名或挂载点显示名。
-- 布局失败、`.DS_Store` 未生成、背景未保存、图标位置错误都会终止打包。
-- 兼容 App 通过卷根目录的 `.hidden` 清单隐藏，避免给已签名 App 写入 `com.apple.FinderInfo` 而破坏严格签名验证。
-- 压缩后的最终 DMG 会重新只读挂载，复查 App、Applications 链接、隐藏兼容副本、背景和图标位置。
+- 背景始终按 Finder 窗口逻辑尺寸和缩放倍率重新生成；默认使用浅色高对比度 2x PNG，并用 `sips` 同时校验物理像素尺寸和 DPI。
+- 背景资源保存在 `.Trashes/bg.png`。`.Trashes` 是 Finder 的特殊隐藏目录，即使用户开启“显示隐藏文件”也不会像普通 `.background` 目录一样出现在安装窗口。
+- 箭头根据 App、Applications 的真实图标坐标和图标尺寸绘制，横向避开两枚图标并与它们的纵向中心对齐。
+- Finder 通过实际挂载路径的 folder alias 定位，不猜测卷名或挂载点显示名；安装窗口固定使用图标视图，并隐藏工具栏、状态栏、路径栏和标签页栏，避免标签页栏改变内容区高度并使图标相对背景下移。标签页栏通过 `System Events` 检测 `AXTabGroup` 并发送 Finder 的 `Shift-Command-T` 切换，因此执行发布的终端需要具备控制 Finder 的自动化与辅助功能权限。
+- 布局失败、`.DS_Store` 未生成、背景未保存、背景路径错误、图标完整坐标错误、兼容 App 画外坐标错误或窗口栏状态错误都会终止打包。
+- 可写镜像使用 `.fseventsd/no_log` 和 `.metadata_never_index` 抑制后台元数据；保存 Finder 布局后会删除 `.fseventsd`、索引目录和其他卷元数据，最终镜像禁止残留 `.background`、`.fseventsd`、`.hidden` 等项目。
+- 必须保留在卷根的旧版兼容 App 使用 BSD `hidden` 标志隐藏，不再生成额外 `.hidden` 清单，也不向已签名 App 写入 `com.apple.FinderInfo`。框架在 APFS 挂载卷清理扩展属性后会显式重置该标志，确保卸载和压缩后仍同时保留隐藏状态与严格代码签名；兼容 App 的 Finder 图标位置还会保存到安装窗口画面之外，用户主动开启“显示隐藏文件”时也不会覆盖正常安装布局。
+- 压缩后的最终 DMG 会重新只读挂载，复查 App、Applications 链接、隐藏兼容副本及其签名和画外坐标、背景像素/DPI、元数据缺失、Finder 窗口状态和两枚可见图标完整坐标。
 
 签名、公证、staple 与 GitHub Release 仍由各 App 的 `release.sh` 负责。

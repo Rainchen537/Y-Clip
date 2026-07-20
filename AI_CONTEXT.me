@@ -73,7 +73,7 @@ build/Y-Clip.app
 dist/Y-Clip.dmg
 ```
 
-注意：为了兼容旧版自动更新器，DMG 内除了可见的 `Y-Clip.app`，还会放一个由卷根目录 `.hidden` 清单隐藏的 `Global Clipboard.app` 兼容副本。不得用 FinderInfo 隐藏标志修改已签名 App；旧版自动更新脚本会寻找这个旧路径。
+注意：为了兼容旧版自动更新器，DMG 内除了可见的 `Y-Clip.app`，还会在卷根保留 `Global Clipboard.app` 兼容副本。共享框架使用 APFS，在不生成 FinderInfo 扩展属性的前提下持久保存该副本的 BSD `hidden` 标志和严格代码签名，并把它的 Finder 图标位置保存到安装窗口画面之外；旧版自动更新脚本仍可找到该路径，用户开启“显示隐藏文件”时也不会让它覆盖正常布局。Retina 背景保存在 Finder 特殊隐藏目录 `.Trashes`，压缩前清除 `.fseventsd` 与索引元数据；Finder 工具栏、状态栏、路径栏和标签页栏全部隐藏，防止内容区尺寸变化导致图标与箭头偏移。
 
 ## 发布到 GitHub
 

@@ -37,7 +37,7 @@
 
 ### 方式一：下载安装包（推荐）
 
-1. 前往 [**Releases**](../../releases/latest) 下载最新的 [`Y-Clip-v1.0.15.dmg`](https://github.com/Rainchen537/Y-Clip/releases/download/v1.0.15/Y-Clip-v1.0.15.dmg)
+1. 前往 [**Releases**](../../releases/latest) 下载最新的 [`Y-Clip-v1.0.16.dmg`](https://github.com/Rainchen537/Y-Clip/releases/download/v1.0.16/Y-Clip-v1.0.16.dmg)
 2. 双击打开，把 **Y-Clip** 拖进 **应用程序** 文件夹
 3. 从启动台或应用程序文件夹打开即可
 

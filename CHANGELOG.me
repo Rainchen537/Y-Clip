@@ -4,6 +4,15 @@
 
 旧的 `UPDATE_LOG.local.md` 内容已迁移到本文件，后续维护记录统一写这里。
 
+## 2026-07-20
+
+- 同步新版共享 APFS DMG 框架：背景改为浅色高对比设计并默认生成 `1280×800 / 144 DPI` 的 2x Retina PNG，按 App 与 Applications 的真实 Finder 坐标绘制居中箭头；安装窗口显式隐藏工具栏、状态栏、路径栏和标签页栏，防止标签页栏改变内容区高度并造成图标偏移。
+- 背景资源从普通 `.background` 迁移到 Finder 特殊隐藏的 `.Trashes/bg.png`；可写镜像保存布局后清除 `.fseventsd`、索引和临时卷元数据，最终只读镜像会断言这些项目不存在，避免用户开启“显示隐藏文件”时看到框架目录。
+- 保留卷根 `Global Clipboard.app` 兼容副本，并在 APFS 上使用 BSD `hidden` 标志隐藏；不再生成 `.hidden` 清单，也不向已签名 App 写入 FinderInfo。兼容副本的 Finder 图标坐标保存到安装窗口画面之外，最终只读重挂载会同时验证画外位置、hidden 标志和严格签名。
+- 使用当前正式安装的 Y-Clip App 完成包含 `Global Clipboard.app` 兼容副本的完整测试 DMG：最终 UDZO 镜像重挂载后，两份 App 的严格签名和 hidden 状态、背景物理分辨率/DPI、元数据缺失、窗口栏状态、可见图标与兼容图标完整坐标均通过自动断言；深色系统外观截图确认黑色名称清晰、箭头居中且兼容副本不覆盖布局。
+- 准备发布 `v1.0.16`，版本号为 `CFBundleShortVersionString=1.0.16`、`CFBundleVersion=17`；README、公开 changelog 和维护说明已同步。
+- 基于最终源码生成并验证本次全新 `Y-Clip-v1.0.16.dmg`：App 公证 ID 为 `95547993-a7e9-4882-876d-57429ba43be2`，DMG 公证 ID 为 `f7fac22d-2849-4b10-a68f-979587ab8528`，SHA256 为 `ce74a206533c7a7ac130e883767ef3649f57fdf4f73dff7529f38a865417749e`。DMG 首次时间戳签名遇到 Apple timestamp 服务瞬时不可用，随后对同一本次新生成镜像重试成功；DMG 与两份 App 的严格签名、stapled ticket、Gatekeeper、BSD hidden 和 `hdiutil verify` 均通过。
+
 ## 2026-07-19
 
 - 接入仓库内 vendored 的 `Y-Framework/Permission`，把首次启动权限汇总、后续缺失权限提示、状态指纹去重、正式安装副本检查和权限修复动作统一交给共享协调器；实际 Accessibility 查询、定向 TCC 刷新和产品文案仍保留在 Y-Clip。

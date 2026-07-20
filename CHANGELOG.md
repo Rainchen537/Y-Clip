@@ -2,6 +2,12 @@
 
 All notable Y-Clip release changes are tracked here.
 
+## v1.0.16 - 2026-07-20
+
+- Rebuilt the drag-to-install DMG with a light high-contrast Retina background so Finder's app labels remain readable in both light and dark system appearances.
+- Removed visible `.background` and `.fseventsd` items from the final image, hid Finder's toolbar, status bar, path bar, and tab bar, and aligned the installation arrow from the saved App and Applications icon coordinates.
+- Preserved the root-level `Global Clipboard.app` updater compatibility copy on APFS with a BSD hidden flag instead of an extra `.hidden` manifest, and saved its Finder icon outside the installation window so it cannot cover the layout when hidden files are shown.
+
 ## v1.0.15 - 2026-07-19
 
 - Unified first-launch and later Accessibility guidance through the shared Y-Project permission prompt framework, including signed installed-copy checks, state-based duplicate suppression, and the existing app-scoped repair flow.
