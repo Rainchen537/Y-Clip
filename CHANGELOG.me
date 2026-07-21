@@ -16,6 +16,7 @@
 - 重新基于最终修复源码生成正式产物：App 公证 ID 为 `1527e9af-2879-4eef-b064-4bc0a142f329`。DMG 首次提交 ID `7b252706-319a-412a-a98a-1cf51a8ebcf3` 在上传后因连接超时长期停留 `In Progress`，随后对同一本次新生成 DMG 重新提交并以 ID `9512ad29-d062-47ff-83d6-20b1b59707d8` 获得 `Accepted`；未复用旧镜像。
 - 最终 `Y-Clip-v1.0.17.dmg` SHA256 为 `1f9a4c0d24d887d5c7c80ff6829532da6cee062a56f0891902cf8022ebc45af8`。DMG、可见 `Y-Clip.app` 和隐藏 `Global Clipboard.app` 兼容副本均通过严格签名、stapled ticket、Gatekeeper 与 `hdiutil verify`。
 - 从最终 DMG 覆盖安装 `/Applications/Y-Clip.app`，确认正式安装版为 `1.0.17 (18)`、Bundle ID `com.lixingchen.GlobalClipboard`、`LSUIElement=true`、Developer ID 团队 `A94225N8T5`，且只运行一个正式进程。最终安装版验证两组快捷键分别显示临时/固定状态，图钉 AX 描述正确；固定面板在历史变化后继续显示，选择后仍保持浮层、恢复受控输入焦点并自动粘贴，测试后已恢复用户剪贴板历史和原始剪贴板。
+- 完成 `v1.0.17` 发布闭环：对应源码提交 `2897d1e0bbb0d6f6a3c8d3db3c2647b7b8582869`、tag `v1.0.17`、Release `https://github.com/Rainchen537/Y-Clip/releases/tag/v1.0.17`。GitHub Release 标题和真实换行说明正确，资产 `Y-Clip-v1.0.17.dmg` 的远端 digest 为 `sha256:1f9a4c0d24d887d5c7c80ff6829532da6cee062a56f0891902cf8022ebc45af8`，与本地最终焦点修复版 DMG 完全一致；tag 保持指向最终功能源码提交，发布记录使用后续文档提交，不移动 tag。
 
 ## 2026-07-20
 
