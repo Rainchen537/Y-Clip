@@ -8,12 +8,12 @@
 - 每次功能、修复、发布或发布事故处理后，追加更新到 `CHANGELOG.me`。
 - 用户可见 release 还要更新 GitHub Release；若维护公开发布历史，也同步更新面向用户的 changelog。
 - 发布 DMG 必须签名、公证、staple，并在本机安装验证。
-- 每次修改本仓库的任务都必须发布新版本并从最终 DMG 覆盖安装本机 App；只有用户明确要求不发布时才可跳过。
+- 只在 Y-Clip 实际发生需要分发的用户可见 App 改动时发布新版本；纯文档、分析、本地实验或未同步进本仓库的共享框架改动不触发发布。正式发布仍必须从最终 DMG 覆盖安装并验证本次受影响路径。
 - 优先通过 GitHub MCP / GitHub App 创建 GitHub Release 和上传 DMG；不可用时再用 `gh` CLI 或 GitHub Releases REST API。
 
 ## 项目简介
 
-Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windows `Win + V` 的剪贴板历史体验搬到 macOS。默认快捷键是 `Option + Command + V`，会在当前光标附近弹出历史面板，支持文字和图片历史、自动粘贴、菜单栏设置面板、开机启动、自动更新和辅助功能权限修复。
+Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windows `Win + V` 的剪贴板历史体验搬到 macOS。默认 `Option + Command + V` 会在当前光标附近弹出临时历史面板；独立的固定面板快捷键默认是 `Option + Shift + Command + V`，会恢复可拖拽位置并让面板持续浮在普通窗口上方。两种模式都支持文字和图片历史、自动粘贴、菜单栏设置面板、开机启动、自动更新和辅助功能权限修复。
 
 这个项目曾叫 Global Clipboard。为了保持用户权限、历史数据和自动更新连续性，以下内部标识不要随意修改：
 
@@ -27,7 +27,7 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 ## 关键文件
 
 - `Sources/AppDelegate.swift`：应用生命周期、菜单栏入口、热键、设置面板连接，以及向共享权限协调器注入 Y-Clip 的 Accessibility 状态与修复动作。
-- `Sources/ClipboardPanelController.swift`：剪贴板历史面板显示、定位、选择和滚动记忆。
+- `Sources/ClipboardPanelController.swift`：剪贴板历史面板显示、定位、选择和滚动记忆；负责图钉、固定/临时模式切换、拖拽位置持久化以及固定状态下的实时历史刷新。
 - `Sources/SettingsWindowController.swift`：独立设置窗口业务控制器，使用 `Y-Framework/Setting` 的统一设置页面框架；权限页诊断当前运行副本，并可切换到验证通过的 `/Applications/Y-Clip.app`。
 - `Sources/ClipboardPreviewView.swift`：设置页面旁侧剪贴板面板预览；功能页选中或重新打开时持续显示，并根据当前屏幕可见区域联动缩放，移动/缩放设置窗口时保留用户选择的 frame。
 - `Sources/AccessibilityPermission.swift`：辅助功能状态、系统设置入口，以及限定到本 App Bundle ID 的 Accessibility TCC 记录刷新。
@@ -119,6 +119,6 @@ git push origin vX.Y.Z
 - 退出旧版 Y-Clip。
 - 安装新版到 `/Applications`。
 - 启动新版。
-- 检查菜单栏图标、默认快捷键 `Option + Command + V`、文字和图片历史、自动粘贴、设置面板、开机启动和自动更新入口。
+- 检查菜单栏图标、普通快捷键 `Option + Command + V`、固定面板快捷键、图钉与拖拽位置、固定状态下的历史刷新和选择后保持显示，并验证文字/图片历史、自动粘贴及必要设置入口。
 - 在权限页确认当前副本状态正确；开发副本只能在 `/Applications/Y-Clip.app` 通过 Bundle ID、签名有效性和团队标识验证后提供“切换到安装版”。
 - 如果辅助功能权限看似已开启但自动粘贴失败，使用设置里的刷新权限记录，或运行 `./reset_accessibility.sh`；两者都只重置本 App 的 Accessibility TCC 记录。开发副本发起修复时不得立即向该副本重新请求 TCC；若有效的 `/Applications/Y-Clip.app` 存在，则切换到正式安装版并在那里引导授权，否则只提示先安装正式版。

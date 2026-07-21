@@ -18,16 +18,17 @@ enum HotKeyError: Error, LocalizedError {
 final class HotKeyController {
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
+    private let identifier: UInt32
+    private let signature: OSType = 0x47434256 // "GCBV"
     private let callback: () -> Void
 
-    init(callback: @escaping () -> Void) {
+    init(identifier: UInt32, callback: @escaping () -> Void) {
+        self.identifier = identifier
         self.callback = callback
     }
 
     deinit {
-        if let hotKeyRef {
-            UnregisterEventHotKey(hotKeyRef)
-        }
+        unregister()
 
         if let handlerRef {
             RemoveEventHandler(handlerRef)
@@ -36,13 +37,9 @@ final class HotKeyController {
 
     func register(hotKey: HotKey) throws {
         try installHandlerIfNeeded()
+        unregister()
 
-        if let hotKeyRef {
-            UnregisterEventHotKey(hotKeyRef)
-            self.hotKeyRef = nil
-        }
-
-        let hotKeyID = EventHotKeyID(signature: fourCharCode("GCBV"), id: 1)
+        let hotKeyID = EventHotKeyID(signature: signature, id: identifier)
 
         let registerStatus = RegisterEventHotKey(
             hotKey.keyCode,
@@ -56,6 +53,15 @@ final class HotKeyController {
         guard registerStatus == noErr else {
             throw HotKeyError.registerFailed(registerStatus, hotKey)
         }
+    }
+
+    func unregister() {
+        guard let hotKeyRef else {
+            return
+        }
+
+        UnregisterEventHotKey(hotKeyRef)
+        self.hotKeyRef = nil
     }
 
     private func installHandlerIfNeeded() throws {
@@ -86,13 +92,19 @@ final class HotKeyController {
                     &hotKeyID
                 )
 
-                guard status == noErr, hotKeyID.id == 1 else {
+                guard status == noErr else {
                     return status
                 }
 
                 let controller = Unmanaged<HotKeyController>
                     .fromOpaque(userData)
                     .takeUnretainedValue()
+                guard
+                    hotKeyID.signature == controller.signature,
+                    hotKeyID.id == controller.identifier
+                else {
+                    return OSStatus(eventNotHandledErr)
+                }
 
                 DispatchQueue.main.async {
                     controller.callback()
@@ -111,9 +123,4 @@ final class HotKeyController {
         }
     }
 
-    private func fourCharCode(_ value: String) -> OSType {
-        value.utf8.reduce(0) { result, character in
-            (result << 8) + OSType(character)
-        }
-    }
 }

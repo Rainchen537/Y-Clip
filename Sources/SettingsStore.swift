@@ -1,8 +1,11 @@
+import AppKit
 import Foundation
 
 final class SettingsStore {
     private enum Keys {
         static let hotKey = "hotKey"
+        static let pinnedHotKey = "pinnedHotKey"
+        static let pinnedPanelFrame = "pinnedPanelFrame"
         static let menuSize = "menuSize"
         static let maxHistoryItems = "maxHistoryItems"
         static let panelScale = "panelScale"
@@ -35,6 +38,47 @@ final class SettingsStore {
             }
 
             defaults.set(data, forKey: Keys.hotKey)
+        }
+    }
+
+    var pinnedHotKey: HotKey {
+        get {
+            guard
+                let data = defaults.data(forKey: Keys.pinnedHotKey),
+                let hotKey = try? JSONDecoder().decode(HotKey.self, from: data)
+            else {
+                return .pinnedDefault
+            }
+
+            return hotKey
+        }
+        set {
+            guard let data = try? JSONEncoder().encode(newValue) else {
+                return
+            }
+
+            defaults.set(data, forKey: Keys.pinnedHotKey)
+        }
+    }
+
+    var pinnedPanelFrame: NSRect? {
+        get {
+            guard let value = defaults.string(forKey: Keys.pinnedPanelFrame) else {
+                return nil
+            }
+
+            let frame = NSRectFromString(value)
+            guard frame.width > 0, frame.height > 0 else {
+                return nil
+            }
+            return frame
+        }
+        set {
+            if let newValue {
+                defaults.set(NSStringFromRect(newValue), forKey: Keys.pinnedPanelFrame)
+            } else {
+                defaults.removeObject(forKey: Keys.pinnedPanelFrame)
+            }
         }
     }
 

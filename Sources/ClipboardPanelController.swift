@@ -227,15 +227,37 @@ final class HistoryRowView: NSView {
     }
 }
 
+private final class ClipboardPanelBackgroundView: NSVisualEffectView {
+    var allowsWindowDrag = false
+
+    override var mouseDownCanMoveWindow: Bool {
+        allowsWindowDrag
+    }
+}
+
+private final class ClipboardPanelDragHandleView: NSView {
+    var isDragEnabled = false
+
+    override func mouseDown(with event: NSEvent) {
+        if isDragEnabled {
+            window?.performDrag(with: event)
+        } else {
+            super.mouseDown(with: event)
+        }
+    }
+}
+
 final class ClipboardPanelController {
     private static let scrollMemoryDuration: TimeInterval = 180
 
     private let panel: ClipboardHistoryPanel
-    private let rootView = NSVisualEffectView()
+    private let rootView = ClipboardPanelBackgroundView()
+    private let dragHandleView = ClipboardPanelDragHandleView()
     private let scrollView = NSScrollView()
     private let stackView = TopAlignedStackView()
     private let headerLabel = NSTextField(labelWithString: "剪贴板历史")
     private let hintLabel = NSTextField(labelWithString: "↑↓ 选择 · Enter 粘贴 · Esc 关闭")
+    private let pinButton = NSButton()
     private let settingsButton = NSButton()
     private var rowViews: [HistoryRowView] = []
     private var items: [ClipboardItem] = []
@@ -244,12 +266,15 @@ final class ClipboardPanelController {
     private var onClose: (() -> Void)?
     private var outsideClickMonitor: Any?
     private var scrollObserver: Any?
+    private var panelMoveObserver: NSObjectProtocol?
     private var metrics: HistoryPanelMetrics = .default
+    private(set) var isPinned = false
     private var lastItemsSignature: [String] = []
     private var lastScrollMemoryDate: Date?
     /// 由外部注入：给定图片项，返回其全图文件 URL（用于生成缩略图）。
     var imageURLProvider: ((ImagePayload) -> URL)?
     var onOpenSettings: ((NSView) -> Void)?
+    var onPinnedFrameChange: ((NSRect) -> Void)?
 
     init() {
         panel = ClipboardHistoryPanel(
@@ -262,6 +287,7 @@ final class ClipboardPanelController {
         panel.isReleasedWhenClosed = false
         panel.level = .floating
         panel.hasShadow = true
+        panel.isMovable = true
         panel.hidesOnDeactivate = false
         panel.backgroundColor = .clear
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
@@ -284,6 +310,13 @@ final class ClipboardPanelController {
         hintLabel.textColor = .secondaryLabelColor
         hintLabel.lineBreakMode = .byTruncatingTail
 
+        pinButton.bezelStyle = .regularSquare
+        pinButton.isBordered = false
+        pinButton.imagePosition = .imageOnly
+        pinButton.target = self
+        pinButton.action = #selector(togglePinned)
+        pinButton.translatesAutoresizingMaskIntoConstraints = false
+
         settingsButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "设置")
         settingsButton.bezelStyle = .regularSquare
         settingsButton.isBordered = false
@@ -293,6 +326,9 @@ final class ClipboardPanelController {
         settingsButton.action = #selector(openSettings)
         settingsButton.toolTip = "打开设置"
         settingsButton.translatesAutoresizingMaskIntoConstraints = false
+
+        dragHandleView.translatesAutoresizingMaskIntoConstraints = false
+        dragHandleView.isHidden = true
 
         stackView.orientation = .vertical
         stackView.spacing = metrics.rowSpacing
@@ -307,6 +343,8 @@ final class ClipboardPanelController {
         scrollView.contentView.postsBoundsChangedNotifications = true
 
         rootView.addSubview(headerStack)
+        rootView.addSubview(dragHandleView)
+        rootView.addSubview(pinButton)
         rootView.addSubview(settingsButton)
         rootView.addSubview(scrollView)
         panel.contentView = rootView
@@ -314,7 +352,17 @@ final class ClipboardPanelController {
         NSLayoutConstraint.activate([
             headerStack.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 12),
             headerStack.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 14),
-            headerStack.trailingAnchor.constraint(lessThanOrEqualTo: settingsButton.leadingAnchor, constant: -10),
+            headerStack.trailingAnchor.constraint(lessThanOrEqualTo: pinButton.leadingAnchor, constant: -10),
+
+            dragHandleView.topAnchor.constraint(equalTo: rootView.topAnchor),
+            dragHandleView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            dragHandleView.trailingAnchor.constraint(equalTo: pinButton.leadingAnchor, constant: -4),
+            dragHandleView.bottomAnchor.constraint(equalTo: scrollView.topAnchor),
+
+            pinButton.trailingAnchor.constraint(equalTo: settingsButton.leadingAnchor, constant: -4),
+            pinButton.centerYAnchor.constraint(equalTo: headerStack.centerYAnchor),
+            pinButton.widthAnchor.constraint(equalToConstant: 26),
+            pinButton.heightAnchor.constraint(equalToConstant: 26),
 
             settingsButton.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -10),
             settingsButton.centerYAnchor.constraint(equalTo: headerStack.centerYAnchor),
@@ -335,12 +383,29 @@ final class ClipboardPanelController {
         panel.keyHandler = { [weak self] event in
             self?.handleKey(event) ?? false
         }
+        updatePinnedAppearance()
+        panelMoveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.isPinned, self.panel.isVisible else { return }
+            self.onPinnedFrameChange?(self.panel.frame)
+        }
+    }
+
+    deinit {
+        if let panelMoveObserver {
+            NotificationCenter.default.removeObserver(panelMoveObserver)
+        }
     }
 
     func show(
         items: [ClipboardItem],
         metrics: HistoryPanelMetrics,
         near point: NSPoint,
+        pinned: Bool,
+        pinnedFrame: NSRect?,
         onChoose: @escaping (ClipboardItem) -> Void,
         onClose: @escaping () -> Void
     ) {
@@ -353,24 +418,132 @@ final class ClipboardPanelController {
         self.onClose = onClose
         selectedIndex = items.isEmpty ? -1 : 0
         lastItemsSignature = itemsSignature
+        applyPinnedState(pinned)
 
         updateMetrics()
         renderRows()
 
         let panelSize = fittedPanelSize(for: items.count, near: point)
-        panel.setFrame(positionedFrame(size: panelSize, near: point), display: true)
+        let regularFrame = positionedFrame(size: panelSize, near: point)
+        let targetFrame = pinned
+            ? positionedPinnedFrame(size: panelSize, savedFrame: pinnedFrame, fallback: regularFrame, near: point)
+            : regularFrame
+        panel.setFrame(targetFrame, display: true)
 
         panel.makeKeyAndOrderFront(nil)
         if shouldResetScroll {
             scrollToTop()
         }
-        beginOutsideClickMonitoring()
+        if pinned {
+            endOutsideClickMonitoring()
+            onPinnedFrameChange?(panel.frame)
+        } else {
+            beginOutsideClickMonitoring()
+        }
         beginHoverTracking()
+    }
+
+    func updatePinnedItems(_ items: [ClipboardItem]) {
+        guard panel.isVisible, isPinned else {
+            return
+        }
+
+        let nextSignature = Self.signature(for: items)
+        guard nextSignature != lastItemsSignature else {
+            return
+        }
+
+        let selectedItem = self.items.indices.contains(selectedIndex)
+            ? self.items[selectedIndex]
+            : nil
+        let scrollOrigin = scrollView.contentView.bounds.origin
+        let oldFrame = panel.frame
+
+        self.items = items
+        lastItemsSignature = nextSignature
+        if let selectedItem {
+            let selectedID = selectedItem.id
+            let selectedKey = selectedItem.dedupeKey
+            let matchingIndex = items.firstIndex {
+                $0.id == selectedID
+            } ?? items.firstIndex {
+                $0.dedupeKey == selectedKey
+            }
+            selectedIndex = matchingIndex
+                ?? (items.isEmpty ? -1 : 0)
+        } else {
+            selectedIndex = items.isEmpty ? -1 : 0
+        }
+
+        renderRows()
+
+        let referencePoint = NSPoint(
+            x: oldFrame.midX,
+            y: oldFrame.midY
+        )
+        let panelSize = fittedPanelSize(
+            for: items.count,
+            near: referencePoint
+        )
+        let visibleFrame = screen(containing: referencePoint)
+            .visibleFrame
+            .insetBy(dx: 12, dy: 12)
+        let targetFrame = NSRect(
+            x: clamp(
+                oldFrame.minX,
+                lower: visibleFrame.minX,
+                upper: visibleFrame.maxX - panelSize.width
+            ),
+            y: clamp(
+                oldFrame.maxY - panelSize.height,
+                lower: visibleFrame.minY,
+                upper: visibleFrame.maxY - panelSize.height
+            ),
+            width: panelSize.width,
+            height: panelSize.height
+        )
+        panel.setFrame(targetFrame, display: true)
+        restoreScrollOrigin(scrollOrigin)
+        onPinnedFrameChange?(panel.frame)
+        updateHover()
     }
 
     @objc private func openSettings() {
         endOutsideClickMonitoring()
         onOpenSettings?(settingsButton)
+    }
+
+    @objc private func togglePinned() {
+        applyPinnedState(!isPinned)
+        if isPinned {
+            endOutsideClickMonitoring()
+            onPinnedFrameChange?(panel.frame)
+        } else {
+            beginOutsideClickMonitoring()
+        }
+    }
+
+    private func applyPinnedState(_ pinned: Bool) {
+        isPinned = pinned
+        rootView.allowsWindowDrag = pinned
+        dragHandleView.isDragEnabled = pinned
+        dragHandleView.isHidden = !pinned
+        panel.isMovableByWindowBackground = pinned
+        panel.level = .floating
+        panel.collectionBehavior = pinned
+            ? [.canJoinAllSpaces, .fullScreenAuxiliary]
+            : [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        updatePinnedAppearance()
+    }
+
+    private func updatePinnedAppearance() {
+        let symbolName = isPinned ? "pin.fill" : "pin"
+        pinButton.image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: isPinned ? "取消固定剪贴板" : "固定剪贴板"
+        )
+        pinButton.contentTintColor = isPinned ? .controlAccentColor : .secondaryLabelColor
+        pinButton.toolTip = isPinned ? "取消固定" : "固定在屏幕最上方"
     }
 
     private func updateMetrics() {
@@ -451,7 +624,7 @@ final class ClipboardPanelController {
     }
 
     private func closeIfClickOutside() {
-        guard panel.isVisible, !panel.frame.contains(NSEvent.mouseLocation) else {
+        guard !isPinned, panel.isVisible, !panel.frame.contains(NSEvent.mouseLocation) else {
             return
         }
 
@@ -557,6 +730,12 @@ final class ClipboardPanelController {
 
         let item = items[index]
         rememberScrollPosition()
+
+        if isPinned {
+            onChoose?(item)
+            return
+        }
+
         endOutsideClickMonitoring()
         endHoverTracking()
         panel.orderOut(nil)
@@ -608,6 +787,25 @@ final class ClipboardPanelController {
         scrollView.reflectScrolledClipView(clipView)
     }
 
+    private func restoreScrollOrigin(_ origin: NSPoint) {
+        rootView.layoutSubtreeIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
+        stackView.layoutSubtreeIfNeeded()
+
+        guard let documentView = scrollView.documentView else {
+            return
+        }
+
+        let clipView = scrollView.contentView
+        let maxY = max(
+            0,
+            documentView.bounds.height - clipView.bounds.height
+        )
+        let y = clamp(origin.y, lower: 0, upper: maxY)
+        clipView.scroll(to: NSPoint(x: 0, y: y))
+        scrollView.reflectScrolledClipView(clipView)
+    }
+
     private func topContentScrollOrigin(documentView: NSView, clipView: NSClipView) -> CGFloat {
         let maxY = max(0, documentView.bounds.height - clipView.bounds.height)
         guard let firstContentView = stackView.arrangedSubviews.first(where: { !$0.isHidden }) else {
@@ -645,6 +843,30 @@ final class ClipboardPanelController {
             + max(0, visibleCount - 1) * rowSpacing
         let height = min(headerHeight + contentHeight + 12, maxHeight)
         return NSSize(width: width, height: height)
+    }
+
+    private func positionedPinnedFrame(
+        size: NSSize,
+        savedFrame: NSRect?,
+        fallback: NSRect,
+        near point: NSPoint
+    ) -> NSRect {
+        let targetScreen = savedFrame.flatMap { frame in
+            NSScreen.screens.first { $0.frame.intersects(frame) }
+        } ?? screen(containing: point)
+        let visibleFrame = targetScreen.visibleFrame.insetBy(dx: 12, dy: 12)
+        let preferredOrigin = savedFrame?.origin ?? fallback.origin
+        let x = clamp(
+            preferredOrigin.x,
+            lower: visibleFrame.minX,
+            upper: visibleFrame.maxX - size.width
+        )
+        let y = clamp(
+            preferredOrigin.y,
+            lower: visibleFrame.minY,
+            upper: visibleFrame.maxY - size.height
+        )
+        return NSRect(origin: NSPoint(x: x, y: y), size: size)
     }
 
     private func positionedFrame(size: NSSize, near point: NSPoint) -> NSRect {

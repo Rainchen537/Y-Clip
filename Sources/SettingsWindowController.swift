@@ -44,6 +44,7 @@ final class SettingsWindowController: NSObject {
 
     init(
         hotKey: HotKey,
+        pinnedHotKey: HotKey,
         panelMetrics: HistoryPanelMetrics,
         maxHistoryItems: Int,
         autoUpdateEnabled: Bool,
@@ -51,6 +52,8 @@ final class SettingsWindowController: NSObject {
         onClearHistory: @escaping () -> Void,
         onLaunchAtLoginChange: @escaping (Bool) -> Void,
         onHotKeyChange: @escaping (HotKey) -> Void,
+        onPinnedHotKeyChange: @escaping (HotKey) -> Void,
+        onHotKeyRecordingChange: @escaping (Bool) -> Void,
         onPanelMetricsChange: @escaping (HistoryPanelMetrics) -> Void,
         onMaxHistoryItemsChange: @escaping (Int) -> Void,
         onAutoUpdateChange: @escaping (Bool) -> Void,
@@ -62,6 +65,7 @@ final class SettingsWindowController: NSObject {
     ) {
         settingsContentController = SettingsContentController(
             hotKey: hotKey,
+            pinnedHotKey: pinnedHotKey,
             panelMetrics: panelMetrics,
             maxHistoryItems: maxHistoryItems,
             autoUpdateEnabled: autoUpdateEnabled,
@@ -69,6 +73,8 @@ final class SettingsWindowController: NSObject {
             onClearHistory: onClearHistory,
             onLaunchAtLoginChange: onLaunchAtLoginChange,
             onHotKeyChange: onHotKeyChange,
+            onPinnedHotKeyChange: onPinnedHotKeyChange,
+            onHotKeyRecordingChange: onHotKeyRecordingChange,
             onPanelMetricsChange: onPanelMetricsChange,
             onMaxHistoryItemsChange: onMaxHistoryItemsChange,
             onAutoUpdateChange: onAutoUpdateChange,
@@ -154,6 +160,10 @@ final class SettingsWindowController: NSObject {
 
     func updateHotKey(_ hotKey: HotKey) {
         settingsContentController.updateHotKey(hotKey)
+    }
+
+    func updatePinnedHotKey(_ hotKey: HotKey) {
+        settingsContentController.updatePinnedHotKey(hotKey)
     }
 
     func updatePanelMetrics(_ metrics: HistoryPanelMetrics) {
@@ -569,8 +579,14 @@ final class SettingsWindowController: NSObject {
 }
 
 private final class SettingsContentController {
+    private enum HotKeyRecordingTarget {
+        case history
+        case pinnedHistory
+    }
+
     let previewView = ClipboardPreviewView()
     private let shortcutButton = NSButton(title: "", target: nil, action: nil)
+    private let pinnedShortcutButton = NSButton(title: "", target: nil, action: nil)
     private let launchAtLoginSwitch = NSSwitch(frame: .zero)
     private let launchAtLoginStatusPill = YSettingPill()
     private let autoUpdateSwitch = NSSwitch(frame: .zero)
@@ -595,13 +611,17 @@ private final class SettingsContentController {
     private let historyLimitField = NSTextField(string: "")
     private let historyLimitStepper = NSStepper()
     private var localKeyMonitor: Any?
+    private var recordingTarget: HotKeyRecordingTarget?
     private var currentHotKey: HotKey
+    private var currentPinnedHotKey: HotKey
     private var currentPanelMetrics: HistoryPanelMetrics
     private var currentMaxHistoryItems: Int
     private var currentUpdateStatus: SoftwareUpdateStatus = .idle
     private let onClearHistory: () -> Void
     private let onLaunchAtLoginChange: (Bool) -> Void
     private let onHotKeyChange: (HotKey) -> Void
+    private let onPinnedHotKeyChange: (HotKey) -> Void
+    private let onHotKeyRecordingChange: (Bool) -> Void
     private let onPanelMetricsChange: (HistoryPanelMetrics) -> Void
     private let onMaxHistoryItemsChange: (Int) -> Void
     private let onAutoUpdateChange: (Bool) -> Void
@@ -622,6 +642,7 @@ private final class SettingsContentController {
 
     init(
         hotKey: HotKey,
+        pinnedHotKey: HotKey,
         panelMetrics: HistoryPanelMetrics,
         maxHistoryItems: Int,
         autoUpdateEnabled: Bool,
@@ -629,6 +650,8 @@ private final class SettingsContentController {
         onClearHistory: @escaping () -> Void,
         onLaunchAtLoginChange: @escaping (Bool) -> Void,
         onHotKeyChange: @escaping (HotKey) -> Void,
+        onPinnedHotKeyChange: @escaping (HotKey) -> Void,
+        onHotKeyRecordingChange: @escaping (Bool) -> Void,
         onPanelMetricsChange: @escaping (HistoryPanelMetrics) -> Void,
         onMaxHistoryItemsChange: @escaping (Int) -> Void,
         onAutoUpdateChange: @escaping (Bool) -> Void,
@@ -639,11 +662,14 @@ private final class SettingsContentController {
         onOpenGitHub: @escaping () -> Void
     ) {
         currentHotKey = hotKey
+        currentPinnedHotKey = pinnedHotKey
         currentPanelMetrics = panelMetrics
         currentMaxHistoryItems = SettingsStore.clampedHistoryLimit(maxHistoryItems)
         self.onClearHistory = onClearHistory
         self.onLaunchAtLoginChange = onLaunchAtLoginChange
         self.onHotKeyChange = onHotKeyChange
+        self.onPinnedHotKeyChange = onPinnedHotKeyChange
+        self.onHotKeyRecordingChange = onHotKeyRecordingChange
         self.onPanelMetricsChange = onPanelMetricsChange
         self.onMaxHistoryItemsChange = onMaxHistoryItemsChange
         self.onAutoUpdateChange = onAutoUpdateChange
@@ -658,6 +684,7 @@ private final class SettingsContentController {
         configureControls()
         updatePanelMetrics(panelMetrics)
         updateHotKey(hotKey)
+        updatePinnedHotKey(pinnedHotKey)
         updateMaxHistoryItems(currentMaxHistoryItems)
         updateLaunchAtLogin(launchAtLoginEnabled)
         updateAutoUpdateState(autoUpdateEnabled)
@@ -694,6 +721,13 @@ private final class SettingsContentController {
     func updateHotKey(_ hotKey: HotKey) {
         currentHotKey = hotKey
         shortcutButton.title = hotKey.displayName
+        recordingHintLabel.stringValue = ""
+        recordingHintLabel.isHidden = true
+    }
+
+    func updatePinnedHotKey(_ hotKey: HotKey) {
+        currentPinnedHotKey = hotKey
+        pinnedShortcutButton.title = hotKey.displayName
         recordingHintLabel.stringValue = ""
         recordingHintLabel.isHidden = true
     }
@@ -758,14 +792,21 @@ private final class SettingsContentController {
     }
 
     func stopRecording() {
+        let wasRecording = localKeyMonitor != nil || recordingTarget != nil
         if let localKeyMonitor {
             NSEvent.removeMonitor(localKeyMonitor)
         }
 
         localKeyMonitor = nil
+        recordingTarget = nil
         shortcutButton.title = currentHotKey.displayName
+        pinnedShortcutButton.title = currentPinnedHotKey.displayName
         recordingHintLabel.stringValue = ""
         recordingHintLabel.isHidden = true
+
+        if wasRecording {
+            onHotKeyRecordingChange(false)
+        }
     }
 
     private func generalContent() -> NSView {
@@ -778,7 +819,8 @@ private final class SettingsContentController {
             title: "启动与快捷键",
             symbolName: "keyboard",
             views: [
-                YSettingUI.row(title: "快捷键", trailingView: shortcutButton),
+                YSettingUI.row(title: "剪贴板快捷键", trailingView: shortcutButton),
+                YSettingUI.row(title: "固定面板快捷键", trailingView: pinnedShortcutButton),
                 YSettingUI.row(title: "开机启动", trailingView: YSettingUI.horizontal([launchAtLoginStatusPill, launchAtLoginSwitch])),
                 recordingHintLabel
             ]
@@ -960,19 +1002,31 @@ private final class SettingsContentController {
     }
 
     @objc private func startRecording() {
-        shortcutButton.title = "录制中"
+        beginRecording(.history)
+    }
+
+    @objc private func startPinnedRecording() {
+        beginRecording(.pinnedHistory)
+    }
+
+    private func beginRecording(_ target: HotKeyRecordingTarget) {
+        stopRecording()
+        recordingTarget = target
+        switch target {
+        case .history:
+            shortcutButton.title = "录制中"
+        case .pinnedHistory:
+            pinnedShortcutButton.title = "录制中"
+        }
         recordingHintLabel.stringValue = "按下新的组合键，Esc 取消"
         recordingHintLabel.textColor = .secondaryLabelColor
         recordingHintLabel.isHidden = false
-
-        if localKeyMonitor != nil {
-            return
-        }
 
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             self?.record(event)
             return nil
         }
+        onHotKeyRecordingChange(true)
     }
 
     @objc private func confirmClearHistory() {
@@ -1089,16 +1143,19 @@ private final class SettingsContentController {
             pill.widthAnchor.constraint(greaterThanOrEqualToConstant: 74).isActive = true
         }
 
-        shortcutButton.bezelStyle = .rounded
-        shortcutButton.controlSize = .regular
-        shortcutButton.target = self
+        for button in [shortcutButton, pinnedShortcutButton] {
+            button.bezelStyle = .rounded
+            button.controlSize = .regular
+            button.target = self
+            button.setButtonType(.momentaryPushIn)
+            button.font = .monospacedSystemFont(ofSize: 13, weight: .semibold)
+            button.contentTintColor = .controlAccentColor
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 112).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        }
         shortcutButton.action = #selector(startRecording)
-        shortcutButton.setButtonType(.momentaryPushIn)
-        shortcutButton.font = .monospacedSystemFont(ofSize: 13, weight: .semibold)
-        shortcutButton.contentTintColor = .controlAccentColor
-        shortcutButton.translatesAutoresizingMaskIntoConstraints = false
-        shortcutButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 112).isActive = true
-        shortcutButton.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        pinnedShortcutButton.action = #selector(startPinnedRecording)
 
         recordingHintLabel.font = .systemFont(ofSize: 12, weight: .regular)
         recordingHintLabel.textColor = .secondaryLabelColor
@@ -1158,8 +1215,16 @@ private final class SettingsContentController {
             return
         }
 
+        let target = recordingTarget
         stopRecording()
-        onHotKeyChange(hotKey)
+        switch target {
+        case .history:
+            onHotKeyChange(hotKey)
+        case .pinnedHistory:
+            onPinnedHotKeyChange(hotKey)
+        case .none:
+            break
+        }
     }
 
     private func applyHistoryLimit(_ count: Int) {

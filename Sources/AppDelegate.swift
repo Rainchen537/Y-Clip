@@ -1,6 +1,11 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private enum HotKeyIdentifier: UInt32 {
+        case history = 1
+        case pinnedHistory = 2
+    }
+
     private let settingsStore = SettingsStore()
     private lazy var historyStore = ClipboardHistoryStore(maxItems: settingsStore.maxHistoryItems)
     private let softwareUpdateController = SoftwareUpdateController()
@@ -12,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     )
     private var hotKeyController: HotKeyController?
+    private var pinnedHotKeyController: HotKeyController?
+    private var hotKeysSuspendedForRecording = false
     private var settingsWindowController: SettingsWindowController?
     private var statusItem: NSStatusItem?
     private var focusContext: FocusContext?
@@ -26,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.settingsWindowController?.updateUpdateStatus(status)
         }
         registerHotKey(settingsStore.hotKey)
+        registerPinnedHotKey(settingsStore.pinnedHotKey)
         scheduleAutomaticUpdateCheckIfNeeded()
         rememberAccessibilityTrustIfNeeded()
         let wasAccessibilityRepairPending = settingsStore.accessibilityRepairPending
@@ -40,6 +48,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 让面板能根据图片项找到磁盘上的全图，用于生成缩略图。
         panelController.imageURLProvider = { [weak self] payload in
             self?.historyStore.imageURL(for: payload) ?? URL(fileURLWithPath: "/dev/null")
+        }
+        panelController.onPinnedFrameChange = { [weak self] frame in
+            self?.settingsStore.pinnedPanelFrame = frame
+        }
+        historyStore.observe { [weak self] items in
+            self?.panelController.updatePinnedItems(items)
         }
         panelController.onOpenSettings = { [weak self] sourceView in
             guard let self else {
@@ -66,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         hotKeyController = nil
+        pinnedHotKeyController = nil
     }
 
     private func setupStatusItem() {
@@ -86,6 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupSettingsWindow() {
         settingsWindowController = SettingsWindowController(
             hotKey: settingsStore.hotKey,
+            pinnedHotKey: settingsStore.pinnedHotKey,
             panelMetrics: settingsStore.panelMetrics,
             maxHistoryItems: settingsStore.maxHistoryItems,
             autoUpdateEnabled: settingsStore.autoUpdateEnabled,
@@ -98,6 +114,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onHotKeyChange: { [weak self] hotKey in
                 self?.setHotKey(hotKey)
+            },
+            onPinnedHotKeyChange: { [weak self] hotKey in
+                self?.setPinnedHotKey(hotKey)
+            },
+            onHotKeyRecordingChange: { [weak self] isRecording in
+                self?.setHotKeyRecordingSuspended(isRecording)
             },
             onPanelMetricsChange: { [weak self] metrics in
                 self?.settingsStore.panelMetrics = metrics
@@ -155,8 +177,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func registerHotKey(_ hotKey: HotKey) {
         do {
-            let hotKeyController = hotKeyController ?? HotKeyController { [weak self] in
-                self?.showClipboardHistory()
+            let hotKeyController = hotKeyController ?? HotKeyController(identifier: HotKeyIdentifier.history.rawValue) { [weak self] in
+                self?.showClipboardHistory(pinned: false)
             }
             try hotKeyController.register(hotKey: hotKey)
             self.hotKeyController = hotKeyController
@@ -172,8 +194,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let previousHotKey = settingsStore.hotKey
 
         do {
-            let hotKeyController = hotKeyController ?? HotKeyController { [weak self] in
-                self?.showClipboardHistory()
+            let hotKeyController = hotKeyController ?? HotKeyController(identifier: HotKeyIdentifier.history.rawValue) { [weak self] in
+                self?.showClipboardHistory(pinned: false)
             }
             try hotKeyController.register(hotKey: hotKey)
             self.hotKeyController = hotKeyController
@@ -186,6 +208,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 title: "快捷键不可用",
                 message: error.localizedDescription
             )
+        }
+    }
+
+    private func registerPinnedHotKey(_ hotKey: HotKey) {
+        do {
+            let controller = pinnedHotKeyController
+                ?? HotKeyController(identifier: HotKeyIdentifier.pinnedHistory.rawValue) { [weak self] in
+                    self?.showClipboardHistory(pinned: true)
+                }
+            try controller.register(hotKey: hotKey)
+            pinnedHotKeyController = controller
+        } catch {
+            showAlert(
+                title: "固定面板快捷键注册失败",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func setPinnedHotKey(_ hotKey: HotKey) {
+        let previousHotKey = settingsStore.pinnedHotKey
+
+        do {
+            let controller = pinnedHotKeyController
+                ?? HotKeyController(identifier: HotKeyIdentifier.pinnedHistory.rawValue) { [weak self] in
+                    self?.showClipboardHistory(pinned: true)
+                }
+            try controller.register(hotKey: hotKey)
+            pinnedHotKeyController = controller
+            settingsStore.pinnedHotKey = hotKey
+            settingsWindowController?.updatePinnedHotKey(hotKey)
+        } catch {
+            registerPinnedHotKey(previousHotKey)
+            settingsWindowController?.updatePinnedHotKey(previousHotKey)
+            showAlert(
+                title: "固定面板快捷键不可用",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func setHotKeyRecordingSuspended(_ suspended: Bool) {
+        guard hotKeysSuspendedForRecording != suspended else {
+            return
+        }
+
+        hotKeysSuspendedForRecording = suspended
+        if suspended {
+            hotKeyController?.unregister()
+            pinnedHotKeyController?.unregister()
+        } else {
+            registerHotKey(settingsStore.hotKey)
+            registerPinnedHotKey(settingsStore.pinnedHotKey)
         }
     }
 
@@ -219,7 +294,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showClipboardHistory() {
+    private func showClipboardHistory(pinned: Bool) {
         focusContext = FocusContextReader.current()
         let anchorPoint = usableAnchorPoint(focusContext?.caretPoint)
 
@@ -227,8 +302,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             items: historyStore.items,
             metrics: settingsStore.panelMetrics,
             near: anchorPoint,
+            pinned: pinned,
+            pinnedFrame: settingsStore.pinnedPanelFrame,
             onChoose: { [weak self] item in
-                self?.paste(item)
+                guard let self else { return }
+                if panelController.isPinned {
+                    let currentContext = FocusContextReader.current()
+                    if currentContext.application != nil {
+                        focusContext = currentContext
+                    }
+                }
+                paste(item)
             },
             onClose: { [weak self] in
                 self?.restoreFocus()

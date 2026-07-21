@@ -4,6 +4,15 @@
 
 旧的 `UPDATE_LOG.local.md` 内容已迁移到本文件，后续维护记录统一写这里。
 
+## 2026-07-21
+
+- 历史面板右上角新增图钉：固定后保持在普通窗口上方，可从标题区域或背景拖动；取消固定后恢复临时面板的 outside-click 关闭行为。
+- 新增独立固定面板快捷键，默认 `Option+Shift+Command+V`；普通 `Option+Command+V` 继续在当前输入光标或鼠标附近打开临时面板。两组快捷键使用独立 Carbon ID，录制期间临时注销两组热键，使冲突组合能够被捕获、拒绝并回滚。
+- 固定面板 frame 使用 `UserDefaults` 持久化并约束到有效屏幕可见区域；选择历史项后面板继续显示，粘贴前按当前前台 App 刷新 focus context。
+- 固定面板接入 `ClipboardHistoryStore.observe`：新复制内容、历史项置顶或清空后实时刷新行列表，按 item ID / dedupe key 尽量保留选择，同时保留窗口上边缘与滚动位置。
+- 设置页新增固定面板快捷键录制入口，功能预览同步显示图钉；维护说明中的过度发布规则已改为只发布实际需要分发的 Y-Clip 改动。
+- 准备发布 `v1.0.17`，版本号为 `CFBundleShortVersionString=1.0.17`、`CFBundleVersion=18`；README、公开 changelog 和维护说明已同步。
+
 ## 2026-07-20
 
 - 同步新版共享 APFS DMG 框架：背景改为浅色高对比设计并默认生成 `1280×800 / 144 DPI` 的 2x Retina PNG，按 App 与 Applications 的真实 Finder 坐标绘制居中箭头；安装窗口显式隐藏工具栏、状态栏、路径栏和标签页栏，防止标签页栏改变内容区高度并造成图标偏移。

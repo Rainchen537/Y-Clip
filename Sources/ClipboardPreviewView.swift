@@ -17,6 +17,7 @@ final class ClipboardPreviewView: NSView {
     private let headerStack = NSStackView()
     private let headerLabel = NSTextField(labelWithString: "剪贴板历史")
     private let hintLabel = NSTextField(labelWithString: "↑↓ 选择 · Enter 粘贴 · Esc 关闭")
+    private let pinButton = NSButton()
     private let settingsButton = NSButton()
     private let scrollView = NSScrollView()
     private let stackView = NSStackView()
@@ -53,6 +54,13 @@ final class ClipboardPreviewView: NSView {
         headerStack.addArrangedSubview(headerLabel)
         headerStack.addArrangedSubview(hintLabel)
 
+        pinButton.image = NSImage(systemSymbolName: "pin", accessibilityDescription: "固定剪贴板")
+        pinButton.bezelStyle = .regularSquare
+        pinButton.isBordered = false
+        pinButton.imagePosition = .imageOnly
+        pinButton.contentTintColor = .secondaryLabelColor
+        pinButton.translatesAutoresizingMaskIntoConstraints = false
+
         settingsButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "设置")
         settingsButton.bezelStyle = .regularSquare
         settingsButton.isBordered = false
@@ -72,6 +80,7 @@ final class ClipboardPreviewView: NSView {
 
         previewHost.addSubview(panelView)
         panelView.addSubview(headerStack)
+        panelView.addSubview(pinButton)
         panelView.addSubview(settingsButton)
         panelView.addSubview(scrollView)
         addSubview(previewHost)
@@ -84,7 +93,12 @@ final class ClipboardPreviewView: NSView {
 
             headerStack.topAnchor.constraint(equalTo: panelView.topAnchor, constant: 12),
             headerStack.leadingAnchor.constraint(equalTo: panelView.leadingAnchor, constant: 14),
-            headerStack.trailingAnchor.constraint(lessThanOrEqualTo: settingsButton.leadingAnchor, constant: -10),
+            headerStack.trailingAnchor.constraint(lessThanOrEqualTo: pinButton.leadingAnchor, constant: -10),
+
+            pinButton.trailingAnchor.constraint(equalTo: settingsButton.leadingAnchor, constant: -4),
+            pinButton.centerYAnchor.constraint(equalTo: headerStack.centerYAnchor),
+            pinButton.widthAnchor.constraint(equalToConstant: 26),
+            pinButton.heightAnchor.constraint(equalToConstant: 26),
 
             settingsButton.trailingAnchor.constraint(equalTo: panelView.trailingAnchor, constant: -10),
             settingsButton.centerYAnchor.constraint(equalTo: headerStack.centerYAnchor),

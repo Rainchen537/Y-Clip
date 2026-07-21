@@ -2,6 +2,13 @@
 
 All notable Y-Clip release changes are tracked here.
 
+## v1.0.17 - 2026-07-21
+
+- Added a pin button to the clipboard history panel so it can remain above normal windows and be dragged like a regular floating panel.
+- Added an independently configurable pinned-panel hotkey, defaulting to `Option+Shift+Command+V`, while the regular hotkey continues to open a temporary panel near the current caret or pointer.
+- Remembered the pinned panel position, kept it visible after choosing history, and refreshed its rows live when clipboard history changes.
+- Suspended both global hotkeys while recording a shortcut so conflicts can be detected and rolled back correctly.
+
 ## v1.0.16 - 2026-07-20
 
 - Rebuilt the drag-to-install DMG with a light high-contrast Retina background so Finder's app labels remain readable in both light and dark system appearances.

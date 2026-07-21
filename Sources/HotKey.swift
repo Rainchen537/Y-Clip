@@ -11,6 +11,11 @@ struct HotKey: Codable, Equatable {
         modifiers: UInt32(optionKey) | UInt32(cmdKey)
     )
 
+    static let pinnedDefault = HotKey(
+        keyCode: UInt32(kVK_ANSI_V),
+        modifiers: UInt32(optionKey) | UInt32(shiftKey) | UInt32(cmdKey)
+    )
+
     var displayName: String {
         var value = ""
 
