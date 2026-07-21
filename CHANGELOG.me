@@ -14,7 +14,8 @@
 - 首次双资产迁移 `v1.0.18` 的上传顺序明确为 arm64 在前、x86_64 在后；发布后必须验证 GitHub latest API 返回的首个 `.dmg` 是 arm64，以兼容仍选择第一个 `.dmg` 的 `v1.0.17` 旧更新器。本次只发布两个 thin 包，不新增 universal 包。
 - 从发布源码提交 `853b9ae` 重新运行最终 `release.sh` 成功：arm64 与 x86_64 的 App 和 DMG 均独立完成 Developer ID 签名、公证、staple、Gatekeeper、`hdiutil verify`、最终只读挂载、可见 App/隐藏兼容 App 签名与精确 thin 架构复核。唯一最终 arm64 DMG 为 `2,834,767` bytes，SHA256 `3910bedef18b526bc2b6b3b3e76ea2d5f53636c86913fbcde124486ce967792c`；x86_64 DMG 为 `2,864,430` bytes，SHA256 `68783a42a216662872876dcc5950c45191ac6320468d4eb4dadde70f9affe643`；此前重新生成前的摘要已作废，不得用于上传或校验。
 - 从上述最终 arm64 DMG 以可回滚方式覆盖安装 `/Applications/Y-Clip.app`，确认 `1.0.18 (19)`、Team ID `A94225N8T5`、严格 codesign、stapled ticket、Gatekeeper 与 arm64 thin 架构通过并恢复后台运行；上述 x86_64 最终 DMG 中严格 thin 的 App 通过 Rosetta translated 模式短暂启动冒烟后已终止，镜像和临时挂载点已清理。
-- README、AGENTS、AI_CONTEXT 和公开 changelog 已同步为 `v1.0.18` 双架构版本。发布源码提交和 tag `v1.0.18` 已推送；GitHub Draft Release 已严格先上传 arm64、确认其为首个且唯一 DMG 后再上传 x86_64，远端两份资产的名称、顺序、bytes、SHA256 digest 和真实换行 release notes 均与上述最终文件一致。Draft 尚未公开，公开后仍须复核 latest API 首个 `.dmg` 为 arm64。本轮未读取或输出公证/GitHub 凭据。
+- README、AGENTS、AI_CONTEXT 和公开 changelog 已同步为 `v1.0.18` 双架构版本。发布源码提交和 tag `v1.0.18` 已推送；GitHub Draft Release 已严格先上传 arm64、确认其为首个且唯一 DMG 后再上传 x86_64，远端两份资产的名称、顺序、bytes、SHA256 digest 和真实换行 release notes 均与上述最终文件一致。公开前的 Draft 核验阶段未读取或输出公证/GitHub 凭据。
+- 完成 `v1.0.18` 正式发布闭环：Release `https://github.com/Rainchen537/Y-Clip/releases/tag/v1.0.18` 已公开；GitHub latest-release API 确认返回 tag `v1.0.18`，且恰好包含 arm64、x86_64 两份 DMG，首个 `.dmg` 仍为 arm64，远端顺序、bytes 与 SHA256 digest 均未变化。远端 tag 解析结果与本地 `853b9ae` 发布源码提交一致；后续维护记录提交不移动 tag。
 
 ## 2026-07-21
 
