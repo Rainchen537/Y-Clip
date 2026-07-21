@@ -5,26 +5,56 @@ APP_NAME="Y-Clip"
 LEGACY_APP_NAME="Global Clipboard"
 EXECUTABLE_NAME="GlobalClipboard"
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BUILD_DIR="$ROOT_DIR/build"
-FINAL_APP_DIR="$BUILD_DIR/$APP_NAME.app"
+TARGET_ARCH="${TARGET_ARCH:-arm64}"
+BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build}"
+FINAL_APP_DIR="${APP_PATH:-$BUILD_DIR/$APP_NAME.app}"
 LEGACY_APP_DIR="$BUILD_DIR/$LEGACY_APP_NAME.app"
 TMP_PARENT="${TMPDIR:-/tmp}"
-TMP_BUILD_DIR="$(mktemp -d "$TMP_PARENT/global-clipboard-build.XXXXXX")"
+ENTITLEMENTS="$ROOT_DIR/GlobalClipboard.entitlements"
+
+case "$TARGET_ARCH" in
+  arm64|x86_64) ;;
+  *)
+    echo "错误：TARGET_ARCH 只允许 arm64 或 x86_64，当前值：$TARGET_ARCH" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "$FINAL_APP_DIR" != *.app || "$FINAL_APP_DIR" == "/" ]]; then
+  echo "错误：APP_PATH 必须指向有效的 .app 输出路径。" >&2
+  exit 1
+fi
+
+TMP_BUILD_DIR="$(mktemp -d "$TMP_PARENT/global-clipboard-$TARGET_ARCH-build.XXXXXX")"
 APP_DIR="$TMP_BUILD_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
-ENTITLEMENTS="$ROOT_DIR/GlobalClipboard.entitlements"
-
 trap 'rm -rf "$TMP_BUILD_DIR"' EXIT
+
+assert_thin_binary() {
+  local binary_path="$1"
+  local actual_archs
+  if [[ ! -f "$binary_path" ]]; then
+    echo "错误：找不到待验证的可执行文件：$binary_path" >&2
+    return 1
+  fi
+  actual_archs="$(/usr/bin/lipo -archs "$binary_path" 2>/dev/null)" || {
+    echo "错误：无法读取可执行文件架构：$binary_path" >&2
+    return 1
+  }
+  if [[ "$actual_archs" != "$TARGET_ARCH" ]]; then
+    echo "错误：要求 $TARGET_ARCH thin binary，实际架构为：$actual_archs" >&2
+    return 1
+  fi
+}
 
 # 签名模式：
 #   RELEASE=1 时用 Developer ID + hardened runtime（发布/公证用）；
-#   否则沿用本地证书快速签名（日常测试用）。
+#   否则默认使用 ad-hoc 签名，避免日常构建访问钥匙串证书。
 RELEASE="${RELEASE:-0}"
 SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-}"
 
 if [[ "$RELEASE" == "1" ]]; then
-  # 发布模式：优先选 Developer ID Application 证书
   if [[ -z "$SIGN_IDENTITY" ]]; then
     SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
       | awk -F '"' '/Developer ID Application.*\(A94225N8T5\)/ { print $2; exit }')"
@@ -35,14 +65,7 @@ if [[ "$RELEASE" == "1" ]]; then
     exit 1
   fi
 else
-  # 测试模式：用本地任意可用证书（找不到则 ad-hoc）
-  if [[ -z "$SIGN_IDENTITY" ]]; then
-    SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
-      | awk -F '"' '/"[^"]+"/ { print $2; exit }')"
-  fi
-  if [[ -z "$SIGN_IDENTITY" ]]; then
-    SIGN_IDENTITY="-"
-  fi
+  SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 fi
 
 # 先在临时目录中构建和签名，避免 iCloud/File Provider 工作区给 .app 附加 FinderInfo 导致 codesign 拒签。
@@ -77,7 +100,7 @@ fi
 
 xcrun swiftc \
   -swift-version 5 \
-  -target arm64-apple-macosx13.0 \
+  -target "$TARGET_ARCH-apple-macosx13.0" \
   -framework AppKit \
   -framework Carbon \
   -framework ApplicationServices \
@@ -87,6 +110,8 @@ xcrun swiftc \
   "${FRAMEWORK_SOURCES[@]}" \
   "$ROOT_DIR"/Sources/*.swift \
   -o "$MACOS_DIR/$EXECUTABLE_NAME"
+
+assert_thin_binary "$MACOS_DIR/$EXECUTABLE_NAME"
 
 xattr -cr "$APP_DIR"
 xattr -d com.apple.FinderInfo "$APP_DIR" 2>/dev/null || true
@@ -109,17 +134,18 @@ rm -rf "$FINAL_APP_DIR"
 if [[ "$LEGACY_APP_DIR" != "$FINAL_APP_DIR" ]]; then
   rm -rf "$LEGACY_APP_DIR"
 fi
-mkdir -p "$BUILD_DIR"
+mkdir -p "$(dirname "$FINAL_APP_DIR")"
 ditto --noextattr --noqtn "$APP_DIR" "$FINAL_APP_DIR"
 xattr -cr "$FINAL_APP_DIR"
 xattr -d com.apple.FinderInfo "$FINAL_APP_DIR" 2>/dev/null || true
 xattr -d 'com.apple.fileprovider.fpfs#P' "$FINAL_APP_DIR" 2>/dev/null || true
 codesign --verify --deep --strict --verbose=2 "$FINAL_APP_DIR"
+assert_thin_binary "$FINAL_APP_DIR/Contents/MacOS/$EXECUTABLE_NAME"
 
 echo "已构建：$FINAL_APP_DIR"
-echo "签名身份：$SIGN_IDENTITY"
+echo "目标架构：$TARGET_ARCH（thin）"
 if [[ "$RELEASE" == "1" ]]; then
-  echo "模式：发布（hardened runtime）"
+  echo "模式：发布（Developer ID + hardened runtime）"
 else
-  echo "模式：本地测试"
+  echo "模式：本地测试（ad-hoc 签名）"
 fi

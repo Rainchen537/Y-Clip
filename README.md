@@ -29,7 +29,7 @@
 - ⚡ **选中即置顶**：选用某条历史后，它会自动成为当前剪贴板内容并排到最前
 - 📐 **显示可调**：设置里用滑杆调整历史面板大小、宽度和长度；选择「功能」页时旁侧半透明预览会持续显示并实时更新
 - 🔢 **历史上限可调**：可设置最多记录多少条历史，默认 50 条
-- 🔄 **自动更新**：可自动检查 GitHub Release，检查结果在设置页内展示；安装前会校验 Bundle ID、Developer ID 团队、hardened runtime、代码签名和 Gatekeeper，再替换正式版
+- 🔄 **自动更新**：可自动检查 GitHub Release，并按当前编译架构精确选择 `Y-Clip-v版本-arm64.dmg` 或 `Y-Clip-v版本-x86_64.dmg`；安装前会校验 Bundle ID、Developer ID 团队、hardened runtime、代码签名和 Gatekeeper，再替换正式版
 - 🎨 **全新图标**：浅色 macOS 风格底板，保留层叠剪切板识别点，并收敛图标视觉尺寸
 - 🪶 **不抢焦点**：弹窗不会激活应用，尽量保留你原本的输入框焦点
 - 🍎 **原生体验**：菜单栏常驻图标，深色 / 浅色模式自适应，无 Dock 图标打扰
@@ -38,11 +38,15 @@
 
 ### 方式一：下载安装包（推荐）
 
-1. 前往 [**Releases**](../../releases/latest) 下载最新的 [`Y-Clip-v1.0.17.dmg`](https://github.com/Rainchen537/Y-Clip/releases/download/v1.0.17/Y-Clip-v1.0.17.dmg)
+1. 根据 Mac 处理器下载 `v1.0.18` 对应安装包：
+   - **Apple Silicon（M 系列）**：[Y-Clip-v1.0.18-arm64.dmg](https://github.com/Rainchen537/Y-Clip/releases/download/v1.0.18/Y-Clip-v1.0.18-arm64.dmg)
+   - **Intel**：[Y-Clip-v1.0.18-x86_64.dmg](https://github.com/Rainchen537/Y-Clip/releases/download/v1.0.18/Y-Clip-v1.0.18-x86_64.dmg)
 2. 双击打开，把 **Y-Clip** 拖进 **应用程序** 文件夹
 3. 从启动台或应用程序文件夹打开即可
 
-> ✅ 本应用已使用 Apple **Developer ID 签名并公证（notarized）**，下载后双击即可打开，**不会出现「无法验证开发者」或「已损坏」的拦截**。
+> ✅ 两个架构的安装包都分别完成 Apple **Developer ID 签名、公证（notarized）与 Gatekeeper 验证**，下载后双击即可打开，**不会出现「无法验证开发者」或「已损坏」的拦截**。
+>
+> `v1.0.18` 只提供 `arm64` 与 `x86_64` 两个独立 thin DMG，不额外提供 universal DMG。
 
 ### 方式二：从源码构建
 
@@ -53,8 +57,9 @@ GitHub 仓库：[Rainchen537/Y-Clip](https://github.com/Rainchen537/Y-Clip)
 ```zsh
 git clone https://github.com/Rainchen537/Y-Clip.git
 cd Y-Clip
-./build.sh                 # 构建到 build/Y-Clip.app
-./install_app.sh           # 安装到 /Applications
+./build.sh                 # 默认构建 arm64 thin app 到 build/Y-Clip.app
+TARGET_ARCH=x86_64 BUILD_DIR=build-x86_64 ./build.sh
+./install_app.sh           # 安装默认 build/Y-Clip.app 到 /Applications
 ```
 
 ## 🔐 权限说明

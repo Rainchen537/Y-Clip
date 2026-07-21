@@ -11,10 +11,10 @@ if [[ ! -f "$FRAMEWORK_DIR/YDMGFramework.zsh" ]]; then
   exit 1
 fi
 
-Y_DMG_APP_NAME="Y-Clip"
+Y_DMG_APP_NAME="${APP_NAME_OVERRIDE:-Y-Clip}"
 Y_DMG_APP_PATH="${APP_PATH_OVERRIDE:-$ROOT_DIR/build/Y-Clip.app}"
-Y_DMG_VOLUME_NAME="Y-Clip"
-Y_DMG_OUTPUT_PATH="$ROOT_DIR/dist/Y-Clip.dmg"
+Y_DMG_VOLUME_NAME="${VOLUME_NAME_OVERRIDE:-Y-Clip}"
+Y_DMG_OUTPUT_PATH="${DMG_OUTPUT_PATH_OVERRIDE:-${OUTPUT_PATH_OVERRIDE:-$ROOT_DIR/dist/Y-Clip.dmg}}"
 Y_DMG_HIDDEN_APP_NAMES=("Global Clipboard")
 
 source "$FRAMEWORK_DIR/YDMGFramework.zsh"

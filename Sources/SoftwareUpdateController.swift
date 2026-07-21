@@ -110,8 +110,23 @@ final class SoftwareUpdateController {
             return
         }
 
-        guard let asset = release.assets.first(where: { $0.name.lowercased().hasSuffix(".dmg") }) else {
-            onStatusChange?(.failed("发现 \(release.tagName)，但没有可自动安装的 DMG。"))
+        let architecture = SoftwareUpdateAssetSelector.compiledArchitecture
+        let expectedAssetName = SoftwareUpdateAssetSelector.expectedAssetName(
+            releaseVersion: latestVersion,
+            architecture: architecture
+        )
+        let selectedAssetName = SoftwareUpdateAssetSelector.selectAssetName(
+            from: release.assets.map(\.name),
+            releaseVersion: latestVersion,
+            architecture: architecture
+        )
+
+        guard
+            let selectedAssetName,
+            let asset = release.assets.first(where: { $0.name == selectedAssetName })
+        else {
+            onStatusChange?(.failed("发现 \(release.tagName)，但缺少当前架构 \(architecture) 的完整资产 \(expectedAssetName ?? "未知")。已打开 Release 页面，请手动确认下载。"))
+            NSWorkspace.shared.open(release.htmlURL)
             return
         }
 
@@ -176,6 +191,7 @@ final class SoftwareUpdateController {
             EXEC="GlobalClipboard"
             BUNDLE_ID="\(YClipApplicationIdentity.bundleIdentifier)"
             TEAM_ID="\(YClipApplicationIdentity.teamIdentifier)"
+            EXPECTED_ARCH="\(SoftwareUpdateAssetSelector.compiledArchitecture)"
             LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
             CANDIDATE="/Applications/.Y-Clip-update-$(uuidgen).app"
             BACKUP="/Applications/.Y-Clip-backup-$(uuidgen).app"
@@ -189,9 +205,15 @@ final class SoftwareUpdateController {
             validate_app() {
               local app="$1"
               [[ -d "$app" && ! -L "$app" ]]
-              local plist_bundle_id
+              local plist_bundle_id executable_name executable_path actual_archs
               plist_bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
               [[ "$plist_bundle_id" == "$BUNDLE_ID" ]]
+              executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+              [[ "$executable_name" == "$EXEC" ]]
+              executable_path="$app/Contents/MacOS/$executable_name"
+              [[ -f "$executable_path" && ! -L "$executable_path" ]]
+              actual_archs="$(/usr/bin/lipo -archs "$executable_path")"
+              [[ "$actual_archs" == "$EXPECTED_ARCH" ]]
               /usr/bin/codesign --verify --deep --strict --verbose=2 "$app" >/dev/null
               local signature_info
               signature_info="$(/usr/bin/codesign -dvvv "$app" 2>&1)"
@@ -302,6 +324,7 @@ final class SoftwareUpdateController {
                 )
             }
 
+            try verifyIncomingApplicationArchitecture(at: incomingApplicationURL)
             try verifyIncomingApplication(at: incomingApplicationURL)
             try runProcess(
                 executable: "/usr/bin/ditto",
@@ -316,6 +339,7 @@ final class SoftwareUpdateController {
             ) else {
                 throw UpdateValidationError(message: "复制后的更新 App 身份验证失败。")
             }
+            try verifyIncomingApplicationArchitecture(at: preparedApplicationURL)
             try verifyIncomingApplication(at: preparedApplicationURL)
         } catch {
             if isMounted {
@@ -349,6 +373,56 @@ final class SoftwareUpdateController {
         }
         try? fileManager.removeItem(at: mountURL)
         return preparedApplicationURL
+    }
+
+    private func verifyIncomingApplicationArchitecture(at applicationURL: URL) throws {
+        let infoPlistURL = applicationURL.appendingPathComponent("Contents/Info.plist")
+        let infoPlistData: Data
+        do {
+            infoPlistData = try Data(contentsOf: infoPlistURL)
+        } catch {
+            throw UpdateValidationError(message: "无法读取更新 App 的 Info.plist。")
+        }
+
+        guard
+            let infoDictionary = try? PropertyListSerialization.propertyList(
+                from: infoPlistData,
+                options: [],
+                format: nil
+            ) as? [String: Any],
+            let executableName = infoDictionary["CFBundleExecutable"] as? String,
+            executableName == "GlobalClipboard"
+        else {
+            throw UpdateValidationError(message: "更新 App 的主可执行文件标识无效。")
+        }
+
+        let executableURL = applicationURL
+            .appendingPathComponent("Contents/MacOS", isDirectory: true)
+            .appendingPathComponent(executableName)
+        let resourceValues: URLResourceValues
+        do {
+            resourceValues = try executableURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        } catch {
+            throw UpdateValidationError(message: "无法检查更新 App 的主可执行文件。")
+        }
+        guard resourceValues.isRegularFile == true, resourceValues.isSymbolicLink != true else {
+            throw UpdateValidationError(message: "更新 App 的主可执行文件无效。")
+        }
+
+        let reportedArchitectures = try runProcess(
+            executable: "/usr/bin/lipo",
+            arguments: ["-archs", executableURL.path],
+            failureMessage: "无法读取更新 App 的主可执行文件架构。"
+        )
+        let expectedArchitecture = SoftwareUpdateAssetSelector.compiledArchitecture
+        guard SoftwareUpdateAssetSelector.isExpectedThinArchitecture(
+            reportedArchitectures: reportedArchitectures,
+            expectedArchitecture: expectedArchitecture
+        ) else {
+            throw UpdateValidationError(
+                message: "更新 App 必须是当前架构 \(expectedArchitecture) 的 thin binary，实际架构为 \(reportedArchitectures.isEmpty ? "未知" : reportedArchitectures)。现有 App 未被替换。"
+            )
+        }
     }
 
     private func verifyIncomingApplication(at applicationURL: URL) throws {

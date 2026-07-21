@@ -4,6 +4,18 @@
 
 旧的 `UPDATE_LOG.local.md` 内容已迁移到本文件，后续维护记录统一写这里。
 
+## 2026-07-22
+
+- 准备 `v1.0.18 (19)` 双架构发布支持：`build.sh` 仅接受 `TARGET_ARCH=arm64|x86_64`，默认 arm64，并通过 `BUILD_DIR` / `APP_PATH` 隔离输出；编译后和最终 App 都严格断言为目标 thin binary。日常构建默认使用 ad-hoc 签名，不访问钥匙串证书。
+- `make_dmg.sh` 新增 App 名称/路径、卷名和输出路径 override；`release.sh` 从全新临时目录为两个架构分别独立 build/stage，逐一完成 App 与 DMG 的签名、公证、staple、Gatekeeper、`hdiutil` 和挂载验证，最终目标文件名为 `Y-Clip-v1.0.18-arm64.dmg` 与 `Y-Clip-v1.0.18-x86_64.dmg`。
+- 自动更新改为按编译架构精确匹配完整资产名，不再选择资产列表中的第一个 `.dmg`；缺少当前架构资产时保持安全失败并打开对应 Release 页面。下载 DMG 挂载定位 App 后、复制到临时目录后及替换脚本移动旧 App 前，都会检查 `GlobalClipboard` 主可执行文件只能包含当前编译架构；架构不匹配、反向架构或 universal binary 均安全失败并保留现有 App。新增独立资产与 thin 架构判断测试，覆盖资产顺序、无关 DMG、缺失架构、架构不匹配及 universal 拒绝。
+- 使用 ad-hoc 签名分别完成 arm64 与 x86_64 隔离构建，两个 App 均为 `1.0.18 (19)`、通过严格 codesign 且 `lipo` 仅包含目标架构；资产/thin 架构选择测试及非法 `TARGET_ARCH` 白名单测试通过。另以 override 为两个架构生成临时测试 DMG，确认自定义卷名/输出路径生效，`hdiutil verify` 通过，挂载后的可见 App 与隐藏兼容副本均保持对应 thin 架构；测试镜像和挂载点已清理。无凭据 release 预检顺序测试确认资产测试先于公证 profile 查询；双 DMG 发布事务模拟确认中途失败时能够恢复完整旧资产组，原先没有资产时也不会留下半套新文件。
+- `release.sh` 在任何签名、公证和凭据预检前先执行 `test_asset_selection.sh`；最终 dist 发布先在同一目录准备并验证两个新 DMG，再成套切换，普通失败会删除本轮新文件并恢复切换前的完整旧资产组，不再预先删除已有 dist。新增同版本原子目录锁，拒绝两个发布进程交错覆盖或误删彼此资产；同时记录仓库源码指纹并在每个架构构建前后及最终切换前复核，中途源码发生变化时停止发布，避免双包混入不同源码。异常退出会保留锁以阻止后续流程静默覆盖现场。
+- 首次双资产迁移 `v1.0.18` 的上传顺序明确为 arm64 在前、x86_64 在后；发布后必须验证 GitHub latest API 返回的首个 `.dmg` 是 arm64，以兼容仍选择第一个 `.dmg` 的 `v1.0.17` 旧更新器。本次只发布两个 thin 包，不新增 universal 包。
+- 正式运行最终 `release.sh` 成功：arm64 与 x86_64 的 App 和 DMG 均独立完成 Developer ID 签名、公证、staple、Gatekeeper、`hdiutil verify`、最终只读挂载、可见 App/隐藏兼容 App 签名与精确 thin 架构复核。最终 arm64 DMG 为 `2,834,869` bytes，SHA256 `a00372820cc6d0a0acaac952613ebad2b872171f80252459e94bcde5dd27bfb6`；x86_64 DMG 为 `2,864,478` bytes，SHA256 `b38022c0106598791253ac8e42a7dbfac452acea8d1a9e15b0df3a0f593e3ea4`。
+- 从最终 arm64 DMG 以可回滚方式覆盖安装 `/Applications/Y-Clip.app`，确认 `1.0.18 (19)`、Team ID `A94225N8T5`、严格 codesign、stapled ticket、Gatekeeper 与 arm64 thin 架构通过并恢复后台运行；x86_64 最终 DMG 中严格 thin 的 App 通过 Rosetta 短暂启动冒烟后已终止，镜像和临时挂载点已清理。
+- README、AGENTS、AI_CONTEXT 和公开 changelog 已同步为 `v1.0.18` 双架构版本。本轮未读取或输出公证/GitHub 凭据；提交、tag、上传和 GitHub Release 仍须使用上述已验证的同一组最终 DMG。
+
 ## 2026-07-21
 
 - 历史面板右上角新增图钉：固定后保持在普通窗口上方，可从标题区域或背景拖动；取消固定后恢复临时面板的 outside-click 关闭行为。

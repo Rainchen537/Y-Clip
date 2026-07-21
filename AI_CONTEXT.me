@@ -32,14 +32,15 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 - `Sources/SettingsWindowController.swift`：独立设置窗口业务控制器，使用 `Y-Framework/Setting` 的统一设置页面框架；权限页诊断当前运行副本，并可切换到验证通过的 `/Applications/Y-Clip.app`。
 - `Sources/ClipboardPreviewView.swift`：设置页面旁侧剪贴板面板预览；功能页选中或重新打开时持续显示，并根据当前屏幕可见区域联动缩放，移动/缩放设置窗口时保留用户选择的 frame。
 - `Sources/AccessibilityPermission.swift`：辅助功能状态、系统设置入口，以及限定到本 App Bundle ID 的 Accessibility TCC 记录刷新。
-- `Sources/SoftwareUpdateController.swift`：GitHub Release 自动检查、下载和安装；替换前使用 `YSettingRuntimeIdentity` 校验 Bundle ID、Developer ID 团队与 hardened runtime，并继续执行 codesign / Gatekeeper 验证。
+- `Sources/SoftwareUpdateController.swift`：GitHub Release 自动检查、下载和安装；按编译架构精确匹配 `Y-Clip-v版本-arm64.dmg` 或 `Y-Clip-v版本-x86_64.dmg`，缺失时停止自动安装并打开 Release 页面；替换前使用 `YSettingRuntimeIdentity` 校验 Bundle ID、Developer ID 团队与 hardened runtime，继续执行 codesign / Gatekeeper，并在挂载 App、临时复制和最终替换脚本三个阶段严格确认主可执行文件是当前编译架构的 thin binary，失败时保留现有 App。
+- `Sources/SoftwareUpdateAssetSelector.swift`、`Tests/SoftwareUpdateAssetSelectorTests.swift`：可独立测试的更新资产完整名称选择与 thin 架构判断逻辑，覆盖资产顺序、无关 DMG、缺失架构、架构不匹配和 universal 拒绝。
 - `Sources/StatusBarIcon.swift`：菜单栏线性描边小图标。
 - `Sources/ClipboardHistoryStore.swift`：剪贴板监听、历史记录、图片落盘。
-- `build.sh`：本地构建 `build/Y-Clip.app`，同时编译 vendored 的 Setting 与 Permission Swift 框架。
-- `make_dmg.sh`：共享 DMG 框架的薄配置入口，生成 `dist/Y-Clip.dmg`。
+- `build.sh`：默认以 `TARGET_ARCH=arm64` 构建 thin `build/Y-Clip.app`，也支持白名单内的 `x86_64`，可通过 `BUILD_DIR` / `APP_PATH` 隔离输出；同时编译 vendored 的 Setting 与 Permission Swift 框架。
+- `make_dmg.sh`：共享 DMG 框架的薄配置入口；支持 `APP_NAME_OVERRIDE`、`APP_PATH_OVERRIDE`、`VOLUME_NAME_OVERRIDE`、`DMG_OUTPUT_PATH_OVERRIDE`（兼容 `OUTPUT_PATH_OVERRIDE`）。
 - `Y-Framework/Permission/YPermissionPromptFramework.swift`：首次启动与后续权限弹窗、状态指纹和正式安装副本防护。
 - `Y-Framework/DMG/`：动态背景、Finder 布局、兼容副本隐藏和最终镜像复查。
-- `release.sh`：Developer ID 签名、公证、DMG 打包、公证验证；打包前验证 App stapled ticket，最终 DMG 挂载后同时验证可见 App 与隐藏兼容副本。
+- `release.sh`：使用同版本原子目录锁拒绝并发发布；记录除构建输出和 `.claude` 外的仓库源码指纹，并在每个架构构建前后及最终切换前复核，检测到中途修改即停止，避免两个架构来自不同源码；从全新临时目录为 `arm64`、`x86_64` 分别独立 build/stage，严格断言 thin 架构，再完成 App 与 DMG 的 Developer ID 签名、公证、staple、Gatekeeper 和挂载验证；最终通过同目录 `.new`、备份和失败恢复成套切换两个带版本与架构后缀的 DMG，不复用旧产物。异常退出遗留锁时必须先确认没有发布进程，并检查 `.backup` / `.new` 文件后再人工移除。
 - `CHANGELOG.me`：AI/维护者更新记录。旧的 `UPDATE_LOG.local.md` 已迁移到此文件，后续不要再新增维护记录到旧文件。
 
 ## 构建
@@ -48,13 +49,11 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 
 ```zsh
 ./build.sh
+TARGET_ARCH=x86_64 BUILD_DIR=build-x86_64 ./build.sh
+./test_asset_selection.sh
 ```
 
-产物：
-
-```text
-build/Y-Clip.app
-```
+默认产物为 `arm64` thin `build/Y-Clip.app`；`TARGET_ARCH` 只允许 `arm64` 或 `x86_64`。需要并行或隔离构建时覆盖 `BUILD_DIR`，也可用 `APP_PATH` 指定完整 `.app` 输出路径。
 
 本地安装：
 
@@ -66,13 +65,13 @@ build/Y-Clip.app
 
 ```zsh
 ./make_dmg.sh
+APP_PATH_OVERRIDE=build-x86_64/Y-Clip.app \
+VOLUME_NAME_OVERRIDE=Y-Clip-x86_64 \
+DMG_OUTPUT_PATH_OVERRIDE=dist/Y-Clip-test-x86_64.dmg \
+./make_dmg.sh
 ```
 
-产物：
-
-```text
-dist/Y-Clip.dmg
-```
+默认仍生成 `dist/Y-Clip.dmg`；发布脚本必须覆盖 App 路径、卷名和输出路径，确保两个架构完全隔离。
 
 注意：为了兼容旧版自动更新器，DMG 内除了可见的 `Y-Clip.app`，还会在卷根保留 `Global Clipboard.app` 兼容副本。共享框架使用 APFS，在不生成 FinderInfo 扩展属性的前提下持久保存该副本的 BSD `hidden` 标志和严格代码签名，并把它的 Finder 图标位置保存到安装窗口画面之外；旧版自动更新脚本仍可找到该路径，用户开启“显示隐藏文件”时也不会让它覆盖正常布局。Retina 背景保存在 Finder 特殊隐藏目录 `.Trashes`，压缩前清除 `.fseventsd` 与索引元数据；Finder 工具栏、状态栏、路径栏和标签页栏全部隐藏，防止内容区尺寸变化导致图标与箭头偏移。
 
@@ -88,10 +87,10 @@ dist/Y-Clip.dmg
 ./release.sh
 ```
 
-4. 计算 DMG SHA256：
+4. `release.sh` 成功后分别计算两个 DMG 的 SHA256：
 
 ```zsh
-shasum -a 256 dist/Y-Clip.dmg
+shasum -a 256 dist/Y-Clip-vX.Y.Z-arm64.dmg dist/Y-Clip-vX.Y.Z-x86_64.dmg
 ```
 
 5. 提交代码，创建 tag，例如：
@@ -104,16 +103,17 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-6. 通过 GitHub MCP / GitHub App 创建 GitHub Release，并上传 `dist/Y-Clip.dmg`。建议 asset 命名为 `Y-Clip-v版本号.dmg`。
+6. 通过 GitHub MCP / GitHub App 创建 Draft GitHub Release，并且只上传两个 thin 资产：先上传 `Y-Clip-v版本号-arm64.dmg` 并确认它是草稿中的首个 `.dmg`，再上传 `Y-Clip-v版本号-x86_64.dmg`；两份资产和 digest 完整验证后才公开，不得新增第三个 universal DMG。首次从单资产迁移到双资产的 `v1.0.18` 必须保持这个顺序，因为 `v1.0.17` 旧更新器仍会选择 Release API 返回的第一个 `.dmg`。
 7. Release 正文使用真实换行，不要把 `\n` 字符串直接写进正文。
 8. 发布后检查：
    - GitHub 最新 release tag 是否正确。
    - Release 正文是否正常换行。
-   - DMG asset 下载链接是否存在。
+   - 两个 thin DMG asset 下载链接是否都存在，且没有 universal DMG。
+   - GitHub `releases/latest` API 返回的 `assets` 中，第一个名称以 `.dmg` 结尾的资产必须是 `Y-Clip-v版本号-arm64.dmg`，以兼容 `v1.0.17` 旧更新器；若顺序不对，不得宣布发布完成。
    - `spctl` 是否显示 `accepted` 和 `Notarized Developer ID`。
    - 本机 `/Applications/Y-Clip.app` 已更新并能正常启动。
 
-当前仓库没有 GitHub MCP / GitHub App 或 `gh` CLI 时，可以用 GitHub API 创建 release；token 可从 `git credential fill` 获取。注意不要把 token 输出到日志或提交到仓库。
+当前仓库没有 GitHub MCP / GitHub App 或 `gh` CLI 时，可以使用已安全配置的 GitHub API 认证创建 release；不得在维护命令、日志或仓库文件中读取、输出或保存 token。当前源码与最终本地产物版本为 `1.0.18 (19)`；arm64 与 x86_64 DMG 已分别完成正式签名、公证、staple、Gatekeeper 和最终挂载验证，arm64 最终包已覆盖安装，x86_64 最终包已通过 Rosetta 启动冒烟。提交、tag 与 GitHub Release 必须继续使用这组已验证产物。
 
 ## 本机验证
 

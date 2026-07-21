@@ -2,6 +2,14 @@
 
 All notable Y-Clip release changes are tracked here.
 
+## v1.0.18 - 2026-07-22
+
+- Added separate Apple Silicon and Intel release artifacts named `Y-Clip-v1.0.18-arm64.dmg` and `Y-Clip-v1.0.18-x86_64.dmg`, with isolated thin builds and architecture verification throughout the signing and mounted-DMG checks.
+- Updated automatic updates to select only the exact asset for the app's compiled architecture and to open the GitHub Release page instead of downloading an unrelated DMG when that asset is missing.
+- Added defense-in-depth checks that reject mismatched or universal update executables before the existing app can be replaced.
+- Added repeatable asset-selection and thin-architecture tests covering asset ordering, unrelated DMGs, missing architecture packages, mismatches, and universal binaries.
+- Independently signed, notarized, stapled, Gatekeeper-checked, and mounted both architecture-specific DMGs before release.
+
 ## v1.0.17 - 2026-07-21
 
 - Added a pin button to the clipboard history panel so it can remain above normal windows and be dragged like a regular floating panel.
