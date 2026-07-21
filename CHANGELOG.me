@@ -12,6 +12,10 @@
 - 固定面板接入 `ClipboardHistoryStore.observe`：新复制内容、历史项置顶或清空后实时刷新行列表，按 item ID / dedupe key 尽量保留选择，同时保留窗口上边缘与滚动位置。
 - 设置页新增固定面板快捷键录制入口，功能预览同步显示图钉；维护说明中的过度发布规则已改为只发布实际需要分发的 Y-Clip 改动。
 - 准备发布 `v1.0.17`，版本号为 `CFBundleShortVersionString=1.0.17`、`CFBundleVersion=18`；README、公开 changelog 和维护说明已同步。
+- 最终安装冒烟发现固定面板保持 key window 时会截获自动生成的 `Command+V`；修复为从当前前台 App 自身的 Accessibility 树读取焦点元素，并在固定面板选择历史项后释放 key window，再恢复目标输入控件。受控 NSTextView Probe 验证选择后固定面板继续显示、前台保持目标 App，自动粘贴成功且只记录 `changed length=28`，未输出用户剪贴板内容。
+- 重新基于最终修复源码生成正式产物：App 公证 ID 为 `1527e9af-2879-4eef-b064-4bc0a142f329`。DMG 首次提交 ID `7b252706-319a-412a-a98a-1cf51a8ebcf3` 在上传后因连接超时长期停留 `In Progress`，随后对同一本次新生成 DMG 重新提交并以 ID `9512ad29-d062-47ff-83d6-20b1b59707d8` 获得 `Accepted`；未复用旧镜像。
+- 最终 `Y-Clip-v1.0.17.dmg` SHA256 为 `1f9a4c0d24d887d5c7c80ff6829532da6cee062a56f0891902cf8022ebc45af8`。DMG、可见 `Y-Clip.app` 和隐藏 `Global Clipboard.app` 兼容副本均通过严格签名、stapled ticket、Gatekeeper 与 `hdiutil verify`。
+- 从最终 DMG 覆盖安装 `/Applications/Y-Clip.app`，确认正式安装版为 `1.0.17 (18)`、Bundle ID `com.lixingchen.GlobalClipboard`、`LSUIElement=true`、Developer ID 团队 `A94225N8T5`，且只运行一个正式进程。最终安装版验证两组快捷键分别显示临时/固定状态，图钉 AX 描述正确；固定面板在历史变化后继续显示，选择后仍保持浮层、恢复受控输入焦点并自动粘贴，测试后已恢复用户剪贴板历史和原始剪贴板。
 
 ## 2026-07-20
 
