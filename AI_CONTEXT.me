@@ -27,7 +27,8 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 ## 关键文件
 
 - `Sources/AppDelegate.swift`：应用生命周期、菜单栏入口、热键、设置面板连接，以及向共享权限协调器注入 Y-Clip 的 Accessibility 状态与修复动作。
-- `Sources/ClipboardPanelController.swift`：剪贴板历史面板显示、定位、选择和滚动记忆；负责图钉、固定/临时模式切换、拖拽位置持久化以及固定状态下的实时历史刷新。
+- `Sources/ClipboardPanelController.swift`：剪贴板历史面板显示、定位、选择和滚动记忆；负责图钉、固定/临时模式切换、拖拽位置持久化以及固定状态下的实时历史刷新。固定面板选择内容时先释放 key window，避免仍可见的浮层截获自动生成的 `Command+V`。
+- `Sources/FocusContext.swift`：从当前前台 App 自身的 Accessibility 树读取焦点元素，固定面板长期显示时也能恢复到正确输入控件，而不是误用浮层自己的 system-wide focused element。
 - `Sources/SettingsWindowController.swift`：独立设置窗口业务控制器，使用 `Y-Framework/Setting` 的统一设置页面框架；权限页诊断当前运行副本，并可切换到验证通过的 `/Applications/Y-Clip.app`。
 - `Sources/ClipboardPreviewView.swift`：设置页面旁侧剪贴板面板预览；功能页选中或重新打开时持续显示，并根据当前屏幕可见区域联动缩放，移动/缩放设置窗口时保留用户选择的 frame。
 - `Sources/AccessibilityPermission.swift`：辅助功能状态、系统设置入口，以及限定到本 App Bundle ID 的 Accessibility TCC 记录刷新。

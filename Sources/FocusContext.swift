@@ -10,20 +10,24 @@ struct FocusContext {
 
 enum FocusContextReader {
     static func current() -> FocusContext {
-        let app = NSWorkspace.shared.frontmostApplication
+        let application = filteredApplication(
+            NSWorkspace.shared.frontmostApplication
+        )
 
         guard AccessibilityPermission.isTrusted(prompt: false) else {
             return FocusContext(
-                application: filteredApplication(app),
+                application: application,
                 focusedElement: nil,
                 selectedTextRange: nil,
                 caretPoint: nil
             )
         }
 
-        guard let focusedElement = currentFocusedElement() else {
+        guard let focusedElement = currentFocusedElement(
+            for: application
+        ) else {
             return FocusContext(
-                application: filteredApplication(app),
+                application: application,
                 focusedElement: nil,
                 selectedTextRange: nil,
                 caretPoint: nil
@@ -31,10 +35,13 @@ enum FocusContextReader {
         }
 
         let selectedTextRange = selectedRange(for: focusedElement)
-        let caretPoint = caretPoint(for: focusedElement, selectedTextRange: selectedTextRange)
+        let caretPoint = caretPoint(
+            for: focusedElement,
+            selectedTextRange: selectedTextRange
+        )
 
         return FocusContext(
-            application: filteredApplication(app),
+            application: application,
             focusedElement: focusedElement,
             selectedTextRange: selectedTextRange,
             caretPoint: caretPoint
@@ -75,6 +82,30 @@ enum FocusContextReader {
         }
 
         return app
+    }
+
+    private static func currentFocusedElement(
+        for application: NSRunningApplication?
+    ) -> AXUIElement? {
+        guard let application else {
+            return currentFocusedElement()
+        }
+
+        let applicationElement = AXUIElementCreateApplication(
+            application.processIdentifier
+        )
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(
+            applicationElement,
+            kAXFocusedUIElementAttribute as CFString,
+            &value
+        )
+
+        guard result == .success, let value else {
+            return nil
+        }
+
+        return (value as! AXUIElement)
     }
 
     private static func currentFocusedElement() -> AXUIElement? {

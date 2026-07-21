@@ -732,6 +732,7 @@ final class ClipboardPanelController {
         rememberScrollPosition()
 
         if isPinned {
+            panel.resignKey()
             onChoose?(item)
             return
         }
