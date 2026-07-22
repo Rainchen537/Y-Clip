@@ -66,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         showSettingsForPreviewIfRequested()
+        UpdateLaunchReadiness.markApplicationReady()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {

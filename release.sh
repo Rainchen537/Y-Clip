@@ -78,31 +78,146 @@ trap cleanup EXIT
 
 bold() { print -P "%B$1%b"; }
 
+assert_vendored_release_inputs() {
+  local framework_dir
+  local -a setting_sources permission_sources symlinks
+
+  if [[ ! -d "$ROOT_DIR/Y-Framework" || -L "$ROOT_DIR/Y-Framework" ]]; then
+    echo "✗ 正式发布要求仓库内非符号链接 Y-Framework 根目录。" >&2
+    return 1
+  fi
+
+  for framework_dir in \
+    "$ROOT_DIR/Y-Framework/Setting" \
+    "$ROOT_DIR/Y-Framework/Permission" \
+    "$ROOT_DIR/Y-Framework/DMG"; do
+    if [[ ! -d "$framework_dir" || -L "$framework_dir" ]]; then
+      echo "✗ 正式发布要求仓库内非符号链接框架目录：$framework_dir" >&2
+      return 1
+    fi
+    symlinks=("$framework_dir"/**/*(N@))
+    if (( ${#symlinks[@]} != 0 )); then
+      echo "✗ 正式发布的 vendored 框架不得包含符号链接：${symlinks[1]}" >&2
+      return 1
+    fi
+  done
+
+  setting_sources=("$ROOT_DIR/Y-Framework/Setting"/*.swift(N.))
+  permission_sources=("$ROOT_DIR/Y-Framework/Permission"/*.swift(N.))
+  if (( ${#setting_sources[@]} == 0 || ${#permission_sources[@]} == 0 )); then
+    echo "✗ 正式发布缺少仓库内 vendored Setting 或 Permission Swift 源文件。" >&2
+    return 1
+  fi
+  if [[ ! -f "$ROOT_DIR/Y-Framework/DMG/YDMGFramework.zsh" ||
+        -L "$ROOT_DIR/Y-Framework/DMG/YDMGFramework.zsh" ||
+        ! -f "$ROOT_DIR/Y-Framework/DMG/DmgBackgroundGenerator.swift" ||
+        -L "$ROOT_DIR/Y-Framework/DMG/DmgBackgroundGenerator.swift" ]]; then
+    echo "✗ 正式发布缺少仓库内 vendored DMG 框架脚本或背景生成器。" >&2
+    return 1
+  fi
+}
+
 release_source_fingerprint() {
-  local file
-  (
-    cd "$ROOT_DIR"
-    while IFS= read -r file; do
-      case "$file" in
-        .claude/*|dist/*|build/*|build-*/*|.DS_Store) continue ;;
-      esac
-      if [[ ! -e "$file" && ! -L "$file" ]]; then
-        echo "✗ 发布源码文件在指纹计算期间消失：$file" >&2
+  local file file_path list_file manifest_file repo_root hash_output content_hash fingerprint
+
+  repo_root="$(/usr/bin/git -C "$ROOT_DIR" rev-parse --show-toplevel 2>/dev/null)" || {
+    echo "✗ 无法确认发布源码仓库。" >&2
+    return 1
+  }
+  if [[ "${repo_root:A}" != "${ROOT_DIR:A}" ]]; then
+    echo "✗ 发布源码目录不是独立 Git 仓库根目录：$ROOT_DIR" >&2
+    return 1
+  fi
+
+  list_file="$(mktemp "$RELEASE_WORK/source-files.XXXXXX")" || return 1
+  manifest_file="$(mktemp "$RELEASE_WORK/source-manifest.XXXXXX")" || {
+    rm -f "$list_file"
+    return 1
+  }
+
+  if ! {
+    /usr/bin/git -C "$ROOT_DIR" ls-files -z &&
+      /usr/bin/git -C "$ROOT_DIR" ls-files --others --exclude-standard -z
+  } > "$list_file"; then
+    echo "✗ 无法完整枚举发布源码文件。" >&2
+    rm -f "$list_file" "$manifest_file"
+    return 1
+  fi
+
+  if ! : > "$manifest_file"; then
+    echo "✗ 无法初始化发布源码清单。" >&2
+    rm -f "$list_file" "$manifest_file"
+    return 1
+  fi
+  while IFS= read -r -d '' file; do
+    case "$file" in
+      .claude/*|dist/*|build/*|build-*/*|.DS_Store) continue ;;
+    esac
+
+    file_path="$ROOT_DIR/$file"
+    if ! /usr/bin/printf '%s\0' "$file" >> "$manifest_file"; then
+      echo "✗ 无法写入发布源码清单：$file" >&2
+      rm -f "$list_file" "$manifest_file"
+      return 1
+    fi
+    if [[ -L "$file_path" ]]; then
+      if ! /usr/bin/printf 'symlink:' >> "$manifest_file"; then
+        echo "✗ 无法写入发布源码符号链接标记：$file" >&2
+        rm -f "$list_file" "$manifest_file"
         return 1
       fi
-      /usr/bin/printf '%s\0' "$file"
-      if [[ -L "$file" ]]; then
-        /usr/bin/printf 'symlink:%s\0' "$(/usr/bin/readlink "$file")"
-      else
-        /usr/bin/shasum -a 256 "$file"
+      if ! /usr/bin/readlink -n "$file_path" >> "$manifest_file"; then
+        echo "✗ 无法读取或记录发布源码符号链接：$file" >&2
+        rm -f "$list_file" "$manifest_file"
+        return 1
       fi
-    done < <(
-      {
-        /usr/bin/git ls-files
-        /usr/bin/git ls-files --others --exclude-standard
-      } | LC_ALL=C /usr/bin/sort -u
-    )
-  ) | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}'
+      if ! /usr/bin/printf '\0' >> "$manifest_file"; then
+        echo "✗ 无法写入发布源码符号链接分隔符：$file" >&2
+        rm -f "$list_file" "$manifest_file"
+        return 1
+      fi
+    elif [[ -f "$file_path" ]]; then
+      hash_output="$(/usr/bin/shasum -a 256 < "$file_path")" || {
+        echo "✗ 无法计算发布源码文件摘要：$file" >&2
+        rm -f "$list_file" "$manifest_file"
+        return 1
+      }
+      content_hash="${hash_output%% *}"
+      if [[ ! "$content_hash" =~ '^[0-9a-f]{64}$' ]]; then
+        echo "✗ 发布源码文件摘要格式异常：$file" >&2
+        rm -f "$list_file" "$manifest_file"
+        return 1
+      fi
+      if ! /usr/bin/printf 'file:%s\0' "$content_hash" >> "$manifest_file"; then
+        echo "✗ 无法写入发布源码文件摘要：$file" >&2
+        rm -f "$list_file" "$manifest_file"
+        return 1
+      fi
+    elif [[ ! -e "$file_path" ]]; then
+      if ! /usr/bin/printf 'deleted\0' >> "$manifest_file"; then
+        echo "✗ 无法写入发布源码删除标记：$file" >&2
+        rm -f "$list_file" "$manifest_file"
+        return 1
+      fi
+    else
+      echo "✗ 发布源码包含不支持的对象类型：$file" >&2
+      rm -f "$list_file" "$manifest_file"
+      return 1
+    fi
+  done < "$list_file"
+
+  hash_output="$(/usr/bin/shasum -a 256 "$manifest_file")" || {
+    echo "✗ 无法计算发布源码清单摘要。" >&2
+    rm -f "$list_file" "$manifest_file"
+    return 1
+  }
+  fingerprint="${hash_output%% *}"
+  rm -f "$list_file" "$manifest_file"
+  if [[ ! "$fingerprint" =~ '^[0-9a-f]{64}$' ]]; then
+    echo "✗ 发布源码指纹格式异常。" >&2
+    return 1
+  fi
+  print -r -- "$fingerprint"
 }
 
 assert_release_source_unchanged() {
@@ -209,8 +324,23 @@ notarize() {
   echo "  ✓ 公证通过：${target:t}"
 }
 
+mkdir -p "$DIST_DIR"
+if ! mkdir "$RELEASE_LOCK_DIR" 2>/dev/null; then
+  echo "✗ 已有同版本 Y-Clip 发布流程或上次异常退出留下的锁：$RELEASE_LOCK_DIR" >&2
+  echo "  请先确认没有 release.sh 正在运行，并检查 dist 中的 .backup/.new 文件后再移除该锁。" >&2
+  exit 1
+fi
+LOCK_ACQUIRED=1
+assert_vendored_release_inputs || exit 1
+SOURCE_FINGERPRINT="$(release_source_fingerprint)" || {
+  echo "✗ 无法记录发布源码指纹。" >&2
+  exit 1
+}
+echo "  ✓ 已锁定本轮发布源码指纹"
+
 bold "▶ 无凭据预检自动更新资产与架构逻辑…"
 "$ROOT_DIR/test_asset_selection.sh"
+assert_release_source_unchanged "自动更新资产测试后"
 echo "  ✓ 无凭据预检通过"
 
 bold "▶ 预检签名证书与公证 profile…"
@@ -226,20 +356,8 @@ if [[ -z "$SIGN_IDENTITY" ]]; then
   echo "✗ 找不到要求团队的 Developer ID Application 证书。" >&2
   exit 1
 fi
+assert_release_source_unchanged "发布前置条件检查后"
 echo "  ✓ 发布前置条件已满足"
-
-mkdir -p "$DIST_DIR"
-if ! mkdir "$RELEASE_LOCK_DIR" 2>/dev/null; then
-  echo "✗ 已有同版本 Y-Clip 发布流程或上次异常退出留下的锁：$RELEASE_LOCK_DIR" >&2
-  echo "  请先确认没有 release.sh 正在运行，并检查 dist 中的 .backup/.new 文件后再移除该锁。" >&2
-  exit 1
-fi
-LOCK_ACQUIRED=1
-SOURCE_FINGERPRINT="$(release_source_fingerprint)" || {
-  echo "✗ 无法记录发布源码指纹。" >&2
-  exit 1
-}
-echo "  ✓ 已锁定本轮发布源码指纹"
 
 for arch in "${ARCHITECTURES[@]}"; do
   assert_release_source_unchanged "$arch 架构构建前"
@@ -255,7 +373,8 @@ for arch in "${ARCHITECTURES[@]}"; do
   mkdir -p "$ARCH_BUILD_DIR" "$ARCH_STAGE_DIR"
 
   bold "▶ [$arch] 独立构建并签名 App…"
-  TARGET_ARCH="$arch" \
+  Y_RELEASE_REQUIRE_VENDORED=1 \
+    TARGET_ARCH="$arch" \
     BUILD_DIR="$ARCH_BUILD_DIR" \
     APP_PATH="$BUILT_APP" \
     CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
@@ -280,7 +399,8 @@ for arch in "${ARCHITECTURES[@]}"; do
   validate_notarized_app "$STAGED_APP" "$arch" "$arch staging App"
 
   bold "▶ [$arch] 生成独立 DMG…"
-  APP_NAME_OVERRIDE="$APP_NAME" \
+  Y_RELEASE_REQUIRE_VENDORED=1 \
+    APP_NAME_OVERRIDE="$APP_NAME" \
     APP_PATH_OVERRIDE="$STAGED_APP" \
     VOLUME_NAME_OVERRIDE="$APP_NAME-$arch" \
     DMG_OUTPUT_PATH_OVERRIDE="$STAGED_DMG" \
@@ -336,6 +456,7 @@ for arch in "${ARCHITECTURES[@]}"; do
   echo "  ✓ 已准备：$NEW_DMG"
 done
 
+assert_release_source_unchanged "双架构最终文件切换前"
 bold "▶ 成套切换两个最终发布文件…"
 for arch in "${ARCHITECTURES[@]}"; do
   FINAL_DMG="$(final_dmg_path "$arch")"
@@ -363,6 +484,7 @@ for arch in "${ARCHITECTURES[@]}"; do
   echo "  ✓ $FINAL_DMG"
 done
 
+assert_release_source_unchanged "双架构最终产物验证后"
 RELEASE_SUCCEEDED=1
 bold "✅ 双架构发布产物已完成"
 echo "可分发文件："

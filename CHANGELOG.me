@@ -6,6 +6,14 @@
 
 ## 2026-07-22
 
+- 准备安全补丁 `v1.0.19 (20)`：自动更新保存所选 GitHub Release 的 expectedVersion，并在下载前、挂载准备前和安装脚本中再次要求它严格高于当前版本；挂载 App、prepared copy、同卷 candidate 和最终 destination 的 `CFBundleShortVersionString` 都必须与 expectedVersion 完全一致，旧包改名、同版本、降级或异常版本会安全停止。
+- 更新安装脚本使用 `/Applications` 同卷 candidate + backup + 原子 rename，挂载源、candidate、现有 App 与最终 App 都验证非 symlink 身份、Bundle ID、Developer ID 团队与 authority、hardened runtime、严格 codesign、Gatekeeper、版本和当前编译架构唯一 thin slice；候选复制、落位、最终验证或后续兼容副本处理失败时恢复原 App。
+- 根目录隐藏兼容路径 `/Applications/Global Clipboard.app` 只有通过相同身份验证后才移动到随机 quarantine 路径并再次验证后删除；未知目录、错误 Bundle ID 或 symlink 会原样保留并停止更新。
+- 更新事务增加固定 `/Applications/.Y-Clip-update.lock`；installer 使用 `/bin/zsh -f`，写出 `READY\n` 后关闭 stdout，Swift `poll(2)` 在 60 秒内持续读取到 EOF 并要求完整帧严格相等。`READY\nCORRUPT`、不关闭 pipe、短帧、timeout 或取消都会终止 installer；TERM/INT/HUP 在父进程等待阶段撤销退出授权并执行 cleanup。
+- 新版 App 启动时以随机 UUID token 和状态文件写入 `STARTING <token> <pid>`，`applicationDidFinishLaunching` 完成后再写 `READY`；installer 同时核对 token、PID、`ps` 的精确 destination 可执行路径，并在 READY 后继续确认存活。事务只有通过该确认才标记 committed；失败恢复只允许启动内部版本等于 `CURRENT_VERSION` 的已验证副本。初次 rollback swap 失败时 cleanup 会再次尝试；若持续失败，则不得启动未通过 READY 的 expectedVersion，也不得释放固定锁或删除 source、DMG、installer、backup/candidate/quarantine 恢复现场。
+- 嵌入 installer 通过 `zsh -n`；受控临时目录事务 harness 扩展为 28 个场景，新增“新版 READY 后在存活确认期退出 + rollback swap 一次失败/持续失败”，确认一次失败可二次恢复并释放锁，持续失败只启动 currentVersion backup 且保留锁与全部恢复副本。另从两份 Swift 源码提取实际 READY reader 编译测试，`READY\n`+EOF、尾随字节、开放 pipe、短帧和空帧共 10/10 通过；未读取用户剪贴板或触碰真实 `/Applications`。
+- `SoftwareUpdateAssetSelector` 测试新增下载 App 内部版本精确匹配以及同版本、降级和异常版本拒绝；测试通过，最新 updater 修改后的 arm64 与 x86_64 隔离 ad-hoc thin App 已重新构建为 `1.0.19 (20)`，正式发布仍需从最终提交重新生成。
+- `release.sh` 的源码指纹改为 fail closed：确认独立 Git 根、显式检查 tracked/untracked NUL 枚举、直接写入 symlink 原始 target 字节（保留末尾换行）、为 tracked 工作区删除写入稳定 marker，并通过 stdin 计算普通文件 SHA-256，使反斜杠或换行文件名也能稳定进入摘要；baseline 移到资产测试前，完整 `.new` 双包验证后切换前及最终产物验证后成功标记前再次复核。正式发布还在 baseline 前要求仓库内非 symlink 的 `Y-Framework` 共同祖先以及 Setting、Permission、DMG vendored 子树，并以 `Y_RELEASE_REQUIRE_VENDORED=1` 禁止 build/DMG 回退到父目录源码；强制模式固定使用仓库内背景生成器并清除外部布局变量。三项目指纹、异常文件名与 vendored 输入 harness 均通过，vendored harness 15/15 覆盖外部 generator、父目录 fallback、DMG symlink 和祖先 symlink。
 - 准备 `v1.0.18 (19)` 双架构发布支持：`build.sh` 仅接受 `TARGET_ARCH=arm64|x86_64`，默认 arm64，并通过 `BUILD_DIR` / `APP_PATH` 隔离输出；编译后和最终 App 都严格断言为目标 thin binary。日常构建默认使用 ad-hoc 签名，不访问钥匙串证书。
 - `make_dmg.sh` 新增 App 名称/路径、卷名和输出路径 override；`release.sh` 从全新临时目录为两个架构分别独立 build/stage，逐一完成 App 与 DMG 的签名、公证、staple、Gatekeeper、`hdiutil` 和挂载验证，最终目标文件名为 `Y-Clip-v1.0.18-arm64.dmg` 与 `Y-Clip-v1.0.18-x86_64.dmg`。
 - 自动更新改为按编译架构精确匹配完整资产名，不再选择资产列表中的第一个 `.dmg`；缺少当前架构资产时保持安全失败并打开对应 Release 页面。下载 DMG 挂载定位 App 后、复制到临时目录后及替换脚本移动旧 App 前，都会检查 `GlobalClipboard` 主可执行文件只能包含当前编译架构；架构不匹配、反向架构或 universal binary 均安全失败并保留现有 App。新增独立资产与 thin 架构判断测试，覆盖资产顺序、无关 DMG、缺失架构、架构不匹配及 universal 拒绝。

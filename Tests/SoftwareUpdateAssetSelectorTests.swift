@@ -6,6 +6,8 @@ struct SoftwareUpdateAssetSelectorTests {
         testAssetOrderDoesNotMatter()
         testUnrelatedDMGsAreIgnored()
         testMissingArchitectureFailsSafely()
+        testExpectedApplicationVersionMustMatchExactly()
+        testUpdateVersionMustBeStrictlyNewer()
         testThinArchitectureMustMatchExactly()
         print("SoftwareUpdateAssetSelector tests passed")
     }
@@ -54,6 +56,64 @@ struct SoftwareUpdateAssetSelectorTests {
             architecture: "arm64"
         )
         expect(selected == nil, "缺少当前架构资产时必须返回 nil")
+    }
+
+    private static func testExpectedApplicationVersionMustMatchExactly() {
+        expect(
+            SoftwareUpdateAssetSelector.isExpectedApplicationVersion(
+                actualVersion: "1.0.19",
+                expectedVersion: "1.0.19"
+            ),
+            "下载 App 的内部版本应与 Release 版本完全一致"
+        )
+        expect(
+            !SoftwareUpdateAssetSelector.isExpectedApplicationVersion(
+                actualVersion: "1.0.18",
+                expectedVersion: "1.0.19"
+            ),
+            "改名后的旧版本 App 必须被拒绝"
+        )
+        expect(
+            !SoftwareUpdateAssetSelector.isExpectedApplicationVersion(
+                actualVersion: "1.0.19",
+                expectedVersion: ""
+            ),
+            "空的期望版本必须被拒绝"
+        )
+    }
+
+    private static func testUpdateVersionMustBeStrictlyNewer() {
+        expect(
+            SoftwareUpdateAssetSelector.isVersion("1.0.19", newerThan: "1.0.18"),
+            "更高补丁版本应允许安装"
+        )
+        expect(
+            !SoftwareUpdateAssetSelector.isVersion("1.0.18", newerThan: "1.0.18"),
+            "相同版本不得重复安装"
+        )
+        expect(
+            !SoftwareUpdateAssetSelector.isVersion("1.0.17", newerThan: "1.0.18"),
+            "旧版本不得降级安装"
+        )
+        expect(
+            SoftwareUpdateAssetSelector.isVersion("v1.0.19", newerThan: "1.0.18"),
+            "单个 v 前缀应被规范化后比较"
+        )
+        expect(
+            !SoftwareUpdateAssetSelector.isVersion("1.x.19", newerThan: "1.0.18"),
+            "格式异常的 Release 版本必须被拒绝"
+        )
+        expect(
+            !SoftwareUpdateAssetSelector.isVersion("vv1.0.19", newerThan: "1.0.18"),
+            "重复版本前缀必须被拒绝"
+        )
+        expect(
+            SoftwareUpdateAssetSelector.expectedAssetName(
+                releaseVersion: "vv1.0.19",
+                architecture: "arm64"
+            ) == nil,
+            "异常版本不得生成可下载资产名"
+        )
     }
 
     private static func testThinArchitectureMustMatchExactly() {

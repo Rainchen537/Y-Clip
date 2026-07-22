@@ -32,20 +32,20 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 - `Sources/SettingsWindowController.swift`：独立设置窗口业务控制器，使用 `Y-Framework/Setting` 的统一设置页面框架；权限页诊断当前运行副本，并可切换到验证通过的 `/Applications/Y-Clip.app`。
 - `Sources/ClipboardPreviewView.swift`：设置页面旁侧剪贴板面板预览；功能页选中或重新打开时持续显示，并根据当前屏幕可见区域联动缩放，移动/缩放设置窗口时保留用户选择的 frame。
 - `Sources/AccessibilityPermission.swift`：辅助功能状态、系统设置入口，以及限定到本 App Bundle ID 的 Accessibility TCC 记录刷新。
-- `Sources/SoftwareUpdateController.swift`：GitHub Release 自动检查、下载和安装；按编译架构精确匹配 `Y-Clip-v版本-arm64.dmg` 或 `Y-Clip-v版本-x86_64.dmg`，缺失时停止自动安装并打开 Release 页面；替换前使用 `YSettingRuntimeIdentity` 校验 Bundle ID、Developer ID 团队与 hardened runtime，继续执行 codesign / Gatekeeper，并在挂载 App、临时复制和最终替换脚本三个阶段严格确认主可执行文件是当前编译架构的 thin binary，失败时保留现有 App。
-- `Sources/SoftwareUpdateAssetSelector.swift`、`Tests/SoftwareUpdateAssetSelectorTests.swift`：可独立测试的更新资产完整名称选择与 thin 架构判断逻辑，覆盖资产顺序、无关 DMG、缺失架构、架构不匹配和 universal 拒绝。
+- `Sources/SoftwareUpdateController.swift`：GitHub Release 自动检查、下载和安装；按编译架构精确匹配 `Y-Clip-v版本-arm64.dmg` 或 `Y-Clip-v版本-x86_64.dmg`，缺失时停止自动安装并打开 Release 页面。选中的 expectedVersion 必须严格高于当前版本，并贯穿下载、挂载、prepared copy、同卷 candidate 和最终 destination；每个 App 都要求内部版本完全一致，并验证非 symlink 身份、Bundle ID、Developer ID 团队与 authority、hardened runtime、codesign、Gatekeeper 和当前编译架构唯一 thin slice。安装器以 `/bin/zsh -f` 启动，输出 `READY\n` 后关闭 stdout；Swift 通过 `poll(2)` 读到 EOF，只有完整帧严格等于 `READY\n` 才退出当前 App，尾随内容、开放 pipe、短帧或超时都会终止 installer。固定 `/Applications/.Y-Clip-update.lock` 拒绝并发事务；TERM/INT/HUP 在等待父进程阶段会撤销退出授权并执行 cleanup。正式替换采用 `RENAME_SWAP` / `RENAME_EXCL` + `RENAME_NOFOLLOW_ANY` 的 candidate + backup 原子事务；新 App 必须完成 `applicationDidFinishLaunching`，通过随机 token、PID、精确可执行路径写入 `STARTING` / `READY` 状态并继续存活后才提交。失败恢复只能启动 `CURRENT_VERSION` 的已验证 destination、legacy、backup、candidate 或 quarantine；只有完整回滚且恢复进程确认存活后才释放锁和删除恢复副本，否则固定锁与全部恢复现场必须保留。旧兼容 `Global Clipboard.app` 只有在身份验证通过后才会移动到随机 quarantine 路径、再次验证并删除；未知目录或 symlink 必须保留并停止安装。
+- `Sources/SoftwareUpdateAssetSelector.swift`、`Tests/SoftwareUpdateAssetSelectorTests.swift`：可独立测试的更新资产完整名称选择、严格版本比较、下载 App 内部版本精确匹配与 thin 架构判断逻辑，覆盖资产顺序、无关 DMG、缺失架构、旧包改名、同版本、降级、异常版本、架构不匹配和 universal 拒绝。
 - `Sources/StatusBarIcon.swift`：菜单栏线性描边小图标。
 - `Sources/ClipboardHistoryStore.swift`：剪贴板监听、历史记录、图片落盘。
 - `build.sh`：默认以 `TARGET_ARCH=arm64` 构建 thin `build/Y-Clip.app`，也支持白名单内的 `x86_64`，可通过 `BUILD_DIR` / `APP_PATH` 隔离输出；同时编译 vendored 的 Setting 与 Permission Swift 框架。
 - `make_dmg.sh`：共享 DMG 框架的薄配置入口；支持 `APP_NAME_OVERRIDE`、`APP_PATH_OVERRIDE`、`VOLUME_NAME_OVERRIDE`、`DMG_OUTPUT_PATH_OVERRIDE`（兼容 `OUTPUT_PATH_OVERRIDE`）。
 - `Y-Framework/Permission/YPermissionPromptFramework.swift`：首次启动与后续权限弹窗、状态指纹和正式安装副本防护。
 - `Y-Framework/DMG/`：动态背景、Finder 布局、兼容副本隐藏和最终镜像复查。
-- `release.sh`：使用同版本原子目录锁拒绝并发发布；记录除构建输出和 `.claude` 外的仓库源码指纹，并在每个架构构建前后及最终切换前复核，检测到中途修改即停止，避免两个架构来自不同源码；从全新临时目录为 `arm64`、`x86_64` 分别独立 build/stage，严格断言 thin 架构，再完成 App 与 DMG 的 Developer ID 签名、公证、staple、Gatekeeper 和挂载验证；最终通过同目录 `.new`、备份和失败恢复成套切换两个带版本与架构后缀的 DMG，不复用旧产物。异常退出遗留锁时必须先确认没有发布进程，并检查 `.backup` / `.new` 文件后再人工移除。
+- `release.sh`：使用同版本原子目录锁拒绝并发发布；baseline 前要求 `Y-Framework` 共同祖先及 Setting、Permission、DMG 子树都来自仓库内非 symlink vendored 框架，正式 build/DMG 调用设置 `Y_RELEASE_REQUIRE_VENDORED=1`，禁止回退到父目录的 tag 外源码；DMG 强制固定仓库内背景生成器并清除继承的布局覆盖变量。源码指纹先确认项目目录是独立 Git 根，显式检查 tracked/untracked 的 NUL 分隔枚举命令，分别记录普通文件 SHA-256、symlink 原始 target 字节（包括末尾换行）和 tracked 工作区删除 marker；普通文件通过 stdin 计算摘要，合法的换行或反斜杠文件名不会触发 `shasum` 转义解析错误，manifest 初始化/追加、Git/readlink/shasum 或不支持对象任一步失败都中止。指纹在更新资产测试之前建立 baseline，在每个架构构建前后、完整 `.new` 双包验证后正式切换前，以及最终产物验证后成功标记前复核；从全新临时目录为 `arm64`、`x86_64` 分别独立 build/stage，严格断言 thin 架构，再完成 App 与 DMG 的 Developer ID 签名、公证、staple、Gatekeeper 和挂载验证；最终通过同目录 `.new`、备份和失败恢复成套切换两个带版本与架构后缀的 DMG，不复用旧产物。异常退出遗留锁时必须先确认没有发布进程，并检查 `.backup` / `.new` 文件后再人工移除。
 - `CHANGELOG.me`：AI/维护者更新记录。旧的 `UPDATE_LOG.local.md` 已迁移到此文件，后续不要再新增维护记录到旧文件。
 
 ## 构建
 
-本项目没有 Xcode 工程，直接用 `swiftc` 编译仓库内 `Y-Framework/Setting/*.swift`、`Y-Framework/Permission/*.swift` 和所有 `Sources/*.swift`。本地 Y-Project 工作区缺少仓库内副本时，`build.sh` 会分别回退到父目录共享框架。
+本项目没有 Xcode 工程，直接用 `swiftc` 编译仓库内 `Y-Framework/Setting/*.swift`、`Y-Framework/Permission/*.swift` 和所有 `Sources/*.swift`。普通本地构建缺少仓库内副本时可回退到父目录共享框架；正式发布设置 `Y_RELEASE_REQUIRE_VENDORED=1`，任何 vendored 框架缺失都会立即失败，禁止使用 Git tag 外的父目录源码。
 
 ```zsh
 ./build.sh
@@ -103,17 +103,17 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-6. 通过 GitHub MCP / GitHub App 创建 Draft GitHub Release，并且只上传两个 thin 资产：先上传 `Y-Clip-v版本号-arm64.dmg` 并确认它是草稿中的首个 `.dmg`，再上传 `Y-Clip-v版本号-x86_64.dmg`；两份资产和 digest 完整验证后才公开，不得新增第三个 universal DMG。首次从单资产迁移到双资产的 `v1.0.18` 必须保持这个顺序，因为 `v1.0.17` 旧更新器仍会选择 Release API 返回的第一个 `.dmg`。
-7. Release 正文使用真实换行，不要把 `\n` 字符串直接写进正文。
+6. 通过 GitHub MCP / GitHub App 创建 Draft GitHub Release，并且只上传两个 thin 资产：先上传 `Y-Clip-v版本号-arm64.dmg`，从 API 原始资产顺序确认它是草稿中的首个且唯一 `.dmg` 后，再上传 `Y-Clip-v版本号-x86_64.dmg`。公开前必须确认恰好两份 DMG、原始顺序仍为 arm64 → x86_64、完整文件名正确，且远端每份资产的 byte size 与 SHA-256 digest 都等于最终本地文件；不得用排序后的名称掩盖原始顺序，也不得新增第三个 generic/universal DMG。
+7. Release 正文使用真实换行，不要把 `\n` 字符串直接写进正文；公开前从 Draft 读取正文并与审阅过的 notes 文件逐字比较。
 8. 发布后检查：
    - GitHub 最新 release tag 是否正确。
-   - Release 正文是否正常换行。
-   - 两个 thin DMG asset 下载链接是否都存在，且没有 universal DMG。
-   - GitHub `releases/latest` API 返回的 `assets` 中，第一个名称以 `.dmg` 结尾的资产必须是 `Y-Clip-v版本号-arm64.dmg`，以兼容 `v1.0.17` 旧更新器；若顺序不对，不得宣布发布完成。
+   - Release 正文是否与 notes 文件一致并正常换行。
+   - 两个 thin DMG asset 下载链接是否都存在，且没有 generic/universal DMG；远端 bytes 与 digest 仍等于本地最终文件。
+   - GitHub `releases/latest` API 返回的 `assets` 中，第一个名称以 `.dmg` 结尾的资产必须是 `Y-Clip-v版本号-arm64.dmg`；若顺序不对，不得宣布发布完成。
    - `spctl` 是否显示 `accepted` 和 `Notarized Developer ID`。
    - 本机 `/Applications/Y-Clip.app` 已更新并能正常启动。
 
-当前仓库没有 GitHub MCP / GitHub App 或 `gh` CLI 时，可以使用已安全配置的 GitHub API 认证创建 release；不得在维护命令、日志或仓库文件中读取、输出或保存 token。当前源码与最终本地产物版本为 `1.0.18 (19)`；arm64 与 x86_64 DMG 已分别完成正式签名、公证、staple、Gatekeeper 和最终挂载验证，arm64 最终包已覆盖安装，x86_64 最终包已通过 Rosetta 启动冒烟。提交、tag 与 GitHub Release 必须继续使用这组已验证产物。
+当前仓库没有 GitHub MCP / GitHub App 或 `gh` CLI 时，可以使用已安全配置的 GitHub API 认证创建 release；不得在维护命令、日志或仓库文件中读取、输出或保存 token。当前源码目标版本为 `1.0.19 (20)`，上一正式 Release 是 `1.0.18 (19)`；`v1.0.19` 必须从当前安全修复源码重新生成 arm64 与 x86_64 两份全新产物，完成各自的签名、公证、staple、Gatekeeper、挂载、安装/Rosetta 冒烟和 GitHub 资产核对后，才能把本段更新为已发布事实。
 
 ## 本机验证
 

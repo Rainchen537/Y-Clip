@@ -2,6 +2,16 @@
 
 All notable Y-Clip release changes are tracked here.
 
+## v1.0.19 - 2026-07-22
+
+- Bound the expected GitHub Release version to download and installation, rejecting malformed, same-version, downgrade, or renamed older App bundles.
+- Added exact internal-version checks to the mounted App, prepared copy, same-volume candidate, and final destination alongside existing identity, Developer ID, hardened runtime, code-signing, Gatekeeper, and strict thin-architecture validation.
+- Replaced direct replacement with candidate + backup atomic renames and rollback when copy, placement, final validation, or later legacy-cleanup checks fail.
+- Protected the hidden legacy `Global Clipboard.app` path: unknown identities and symlinks are preserved, while a verified legacy copy is first moved to a private quarantine path and revalidated before removal.
+- Added a fixed update-transaction lock and a bounded, shell-environment-independent installer readiness channel that requires `READY\n` followed by EOF, so concurrent updates, startup-output pollution, trailing bytes, cancellation, or a stalled installer fail without replacing the running App.
+- The replacement is committed only after the newly installed App finishes its AppKit launch, reports a one-time token and exact process identity, and remains alive; failed launches restart only a verified previous version, while an incomplete rollback preserves the transaction lock and every recovery copy.
+- Hardened the dual-architecture release source fingerprint so Git enumeration, raw symlink-target bytes (including trailing newlines), unusual filenames, manifest writes, and hashes fail closed, tracked working-tree deletions use a stable marker, repository-local vendored frameworks are mandatory, and source changes are checked immediately before artifact replacement and again before success.
+
 ## v1.0.18 - 2026-07-22
 
 - Added separate Apple Silicon and Intel release artifacts named `Y-Clip-v1.0.18-arm64.dmg` and `Y-Clip-v1.0.18-x86_64.dmg`, with isolated thin builds and architecture verification throughout the signing and mounted-DMG checks.

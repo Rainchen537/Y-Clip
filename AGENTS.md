@@ -11,7 +11,7 @@
 - 安装路径：`/Applications/Y-Clip.app`
 - 版本位置：`Info.plist` 的 `CFBundleShortVersionString` 和 `CFBundleVersion`
 - 正式 DMG：`dist/Y-Clip-vX.Y.Z-arm64.dmg` 与 `dist/Y-Clip-vX.Y.Z-x86_64.dmg`；自动更新按编译架构精确匹配完整资产名
-- 当前版本：`1.0.18 (19)`；正式 Release 同时提供两个架构的独立 thin DMG
+- 当前源码目标版本：`1.0.19 (20)`；正式 Release 同时提供两个架构的独立 thin DMG
 
 内部名称、Bundle ID、旧数据路径和 DMG 内隐藏的 `Global Clipboard.app` 兼容副本不得因对外名称 Y-Clip 而修改。
 
