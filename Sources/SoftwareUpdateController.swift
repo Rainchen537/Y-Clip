@@ -260,6 +260,8 @@ final class SoftwareUpdateController {
             launch_state_file=""
             launch_token=""
             transaction_committed=0
+            transaction_state_change_active=0
+            termination_pending=0
 
             validate_identity() {
               local app="$1"
@@ -380,7 +382,25 @@ final class SoftwareUpdateController {
               lock_owned=1
             }
 
+            begin_transaction_state_change() {
+              (( transaction_state_change_active == 0 )) || return 1
+              transaction_state_change_active=1
+            }
+
+            finish_transaction_state_change() {
+              transaction_state_change_active=0
+              if (( termination_pending == 1 )); then
+                termination_pending=0
+                handle_termination
+              fi
+              return 0
+            }
+
             handle_termination() {
+              if (( transaction_state_change_active == 1 )); then
+                termination_pending=1
+                return 0
+              fi
               if (( parent_wait_active == 1 )); then
                 parent_exit_authorized=0
                 parent_wait_active=0
@@ -469,9 +489,17 @@ final class SoftwareUpdateController {
               fi
               [[ -d "$LEGACY_QUARANTINE" && ! -L "$LEGACY_QUARANTINE" ]] || return 1
               [[ ! -e "$LEGACY_DEST" && ! -L "$LEGACY_DEST" ]] || return 1
-              exclusive_rename "$LEGACY_QUARANTINE" "$LEGACY_DEST" || return 1
-              validate_identity "$LEGACY_DEST" || return 1
+              begin_transaction_state_change || return 1
+              if ! exclusive_rename "$LEGACY_QUARANTINE" "$LEGACY_DEST"; then
+                finish_transaction_state_change
+                return 1
+              fi
               legacy_quarantined=0
+              if ! validate_identity "$LEGACY_DEST"; then
+                finish_transaction_state_change
+                return 1
+              fi
+              finish_transaction_state_change
             }
 
             rollback_primary_installation() {
@@ -484,22 +512,52 @@ final class SoftwareUpdateController {
                 else
                   return 1
                 fi
-                atomic_swap "$old_primary" "$DEST" || return 1
-                validate_app "$DEST" "$CURRENT_VERSION" || return 1
-                /bin/rm -rf "$old_primary" || true
+                begin_transaction_state_change || return 1
+                if ! atomic_swap "$old_primary" "$DEST"; then
+                  finish_transaction_state_change
+                  return 1
+                fi
                 primary_swapped=0
+                if [[ "$old_primary" == "$CANDIDATE" ]]; then
+                  candidate_owned=1
+                fi
+                if ! validate_app "$DEST" "$CURRENT_VERSION"; then
+                  finish_transaction_state_change
+                  return 1
+                fi
+                if ! /bin/rm -rf "$old_primary"; then
+                  finish_transaction_state_change
+                  return 1
+                fi
+                if [[ -e "$old_primary" || -L "$old_primary" ]]; then
+                  finish_transaction_state_change
+                  return 1
+                fi
                 candidate_owned=0
+                finish_transaction_state_change
                 return 0
               fi
 
               if (( new_primary_created == 1 )); then
                 if (( legacy_present == 1 )) && validate_app "$LEGACY_DEST" "$CURRENT_VERSION"; then
                   [[ ! -e "$CANDIDATE" && ! -L "$CANDIDATE" ]] || return 1
-                  exclusive_rename "$DEST" "$CANDIDATE" || return 1
+                  begin_transaction_state_change || return 1
+                  if ! exclusive_rename "$DEST" "$CANDIDATE"; then
+                    finish_transaction_state_change
+                    return 1
+                  fi
                   candidate_owned=1
                   new_primary_created=0
-                  /bin/rm -rf "$CANDIDATE" || true
+                  if ! /bin/rm -rf "$CANDIDATE"; then
+                    finish_transaction_state_change
+                    return 1
+                  fi
+                  if [[ -e "$CANDIDATE" || -L "$CANDIDATE" ]]; then
+                    finish_transaction_state_change
+                    return 1
+                  fi
                   candidate_owned=0
+                  finish_transaction_state_change
                   return 0
                 fi
                 return 1
@@ -608,21 +666,36 @@ final class SoftwareUpdateController {
               validate_app "$CANDIDATE" "$EXPECTED_VERSION" || return 1
 
               if (( primary_existed == 1 )); then
-                atomic_swap "$CANDIDATE" "$DEST" || return 1
+                begin_transaction_state_change || return 1
+                if ! atomic_swap "$CANDIDATE" "$DEST"; then
+                  finish_transaction_state_change
+                  return 1
+                fi
                 primary_swapped=1
                 candidate_owned=0
+                finish_transaction_state_change
                 validate_app "$CANDIDATE" "$CURRENT_VERSION" || return 1
                 exclusive_rename "$CANDIDATE" "$BACKUP" || return 1
               else
-                exclusive_rename "$CANDIDATE" "$DEST" || return 1
+                begin_transaction_state_change || return 1
+                if ! exclusive_rename "$CANDIDATE" "$DEST"; then
+                  finish_transaction_state_change
+                  return 1
+                fi
                 candidate_owned=0
                 new_primary_created=1
+                finish_transaction_state_change
               fi
               validate_app "$DEST" "$EXPECTED_VERSION" || return 1
 
               if (( legacy_present == 1 )); then
-                exclusive_rename "$LEGACY_DEST" "$LEGACY_QUARANTINE" || return 1
+                begin_transaction_state_change || return 1
+                if ! exclusive_rename "$LEGACY_DEST" "$LEGACY_QUARANTINE"; then
+                  finish_transaction_state_change
+                  return 1
+                fi
                 legacy_quarantined=1
+                finish_transaction_state_change
                 validate_identity "$LEGACY_QUARANTINE" || return 1
               fi
 
