@@ -38,15 +38,15 @@
 
 ### 方式一：下载安装包（推荐）
 
-1. 根据 Mac 处理器下载 `v1.0.19` 对应安装包：
-   - **Apple Silicon（M 系列）**：[Y-Clip-v1.0.19-arm64.dmg](https://github.com/Rainchen537/Y-Clip/releases/download/v1.0.19/Y-Clip-v1.0.19-arm64.dmg)
-   - **Intel**：[Y-Clip-v1.0.19-x86_64.dmg](https://github.com/Rainchen537/Y-Clip/releases/download/v1.0.19/Y-Clip-v1.0.19-x86_64.dmg)
+1. 根据 Mac 处理器下载 `v1.0.20` 对应安装包：
+   - **Apple Silicon（M 系列）**：[Y-Clip-v1.0.20-arm64.dmg](https://github.com/Rainchen537/Y-Clip/releases/download/v1.0.20/Y-Clip-v1.0.20-arm64.dmg)
+   - **Intel**：[Y-Clip-v1.0.20-x86_64.dmg](https://github.com/Rainchen537/Y-Clip/releases/download/v1.0.20/Y-Clip-v1.0.20-x86_64.dmg)
 2. 双击打开，把 **Y-Clip** 拖进 **应用程序** 文件夹
 3. 从启动台或应用程序文件夹打开即可
 
 > ✅ 两个架构的安装包都分别完成 Apple **Developer ID 签名、公证（notarized）与 Gatekeeper 验证**，下载后双击即可打开，**不会出现「无法验证开发者」或「已损坏」的拦截**。
 >
-> `v1.0.19` 只提供 `arm64` 与 `x86_64` 两个独立 thin DMG，不额外提供 universal DMG。
+> `v1.0.20` 只提供 `arm64` 与 `x86_64` 两个独立 thin DMG，不额外提供 universal DMG。
 
 ### 方式二：从源码构建
 

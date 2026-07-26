@@ -273,7 +273,7 @@ final class ClipboardPanelController {
     private var lastScrollMemoryDate: Date?
     /// 由外部注入：给定图片项，返回其全图文件 URL（用于生成缩略图）。
     var imageURLProvider: ((ImagePayload) -> URL)?
-    var onOpenSettings: ((NSView) -> Void)?
+    var onOpenSettings: (() -> Void)?
     var onPinnedFrameChange: ((NSRect) -> Void)?
 
     init() {
@@ -510,7 +510,7 @@ final class ClipboardPanelController {
 
     @objc private func openSettings() {
         endOutsideClickMonitoring()
-        onOpenSettings?(settingsButton)
+        onOpenSettings?()
     }
 
     @objc private func togglePinned() {
@@ -553,11 +553,21 @@ final class ClipboardPanelController {
     }
 
     func close() {
+        dismiss(shouldNotifyClose: true)
+    }
+
+    func dismissForSettingsTransition() {
+        dismiss(shouldNotifyClose: false)
+    }
+
+    private func dismiss(shouldNotifyClose: Bool) {
         rememberScrollPosition()
         endOutsideClickMonitoring()
         endHoverTracking()
         panel.orderOut(nil)
-        onClose?()
+        if shouldNotifyClose {
+            onClose?()
+        }
     }
 
     private func beginOutsideClickMonitoring() {

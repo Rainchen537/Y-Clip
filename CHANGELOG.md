@@ -2,6 +2,11 @@
 
 All notable Y-Clip release changes are tracked here.
 
+## v1.0.20 - 2026-07-27
+
+- Fixed the gear button in both temporary and pinned clipboard panels so it reliably dismisses the panel and opens a focused Settings window.
+- Prevented the panel-close focus restoration from competing with Settings activation during that transition.
+
 ## v1.0.19 - 2026-07-22
 
 - Bound the expected GitHub Release version to download and installation, rejecting malformed, same-version, downgrade, or renamed older App bundles.

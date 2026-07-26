@@ -55,14 +55,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         historyStore.observe { [weak self] items in
             self?.panelController.updatePinnedItems(items)
         }
-        panelController.onOpenSettings = { [weak self] sourceView in
+        panelController.onOpenSettings = { [weak self] in
             guard let self else {
                 return
             }
 
-            _ = sourceView
-            panelController.close()
-            openSettings()
+            panelController.dismissForSettingsTransition()
+            DispatchQueue.main.async { [weak self] in
+                self?.openSettings()
+            }
         }
 
         showSettingsForPreviewIfRequested()
