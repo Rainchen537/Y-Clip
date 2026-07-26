@@ -48,6 +48,38 @@ assert_thin_binary() {
   fi
 }
 
+sign_release_app() {
+  local max_attempts=4
+  local attempt=1
+  local retry_delay=5
+  local stderr_path="$TMP_BUILD_DIR/codesign.stderr"
+
+  while (( attempt <= max_attempts )); do
+    : > "$stderr_path"
+    if codesign --force \
+      --sign "$SIGN_IDENTITY" \
+      --options runtime \
+      --timestamp \
+      --entitlements "$ENTITLEMENTS" \
+      "$APP_DIR" 2> >(tee "$stderr_path" >&2); then
+      return 0
+    fi
+
+    if ! grep -Eiq 'timestamp service.*not available' "$stderr_path"; then
+      return 1
+    fi
+    if (( attempt == max_attempts )); then
+      echo "错误：Apple 时间戳服务连续 $max_attempts 次不可用，停止发布签名。" >&2
+      return 1
+    fi
+
+    echo "警告：Apple 时间戳服务暂时不可用，${retry_delay} 秒后重试签名（$attempt/$max_attempts）。" >&2
+    sleep "$retry_delay"
+    (( attempt += 1 ))
+    (( retry_delay += 5 ))
+  done
+}
+
 # 签名模式：
 #   RELEASE=1 时用 Developer ID + hardened runtime（发布/公证用）；
 #   否则默认使用 ad-hoc 签名，避免日常构建访问钥匙串证书。
@@ -133,12 +165,8 @@ xattr -d 'com.apple.fileprovider.fpfs#P' "$APP_DIR" 2>/dev/null || true
 if [[ "$RELEASE" == "1" ]]; then
   # 发布签名：hardened runtime + 安全时间戳 + entitlements。
   # 注意不用 --deep（Apple 已不推荐，对公证不可靠）；本 app 无内嵌组件，直接签 bundle 即可。
-  codesign --force \
-    --sign "$SIGN_IDENTITY" \
-    --options runtime \
-    --timestamp \
-    --entitlements "$ENTITLEMENTS" \
-    "$APP_DIR"
+  # 只对 Apple 时间戳服务的明确瞬时故障做有限重试；证书、权限等其他错误仍立即失败。
+  sign_release_app
 else
   codesign --force --deep --sign "$SIGN_IDENTITY" "$APP_DIR" >/dev/null
 fi
