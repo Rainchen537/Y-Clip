@@ -9,6 +9,9 @@
 - 准备 `v1.0.20 (21)`：修复临时与固定剪贴板小窗口右上角齿轮按钮的设置窗口切换。打开设置时改用不恢复原输入 App 焦点的专用面板关闭路径，并把设置窗口激活安排到下一轮主队列，消除面板关闭回调与设置窗口激活在同一鼠标事件中的焦点竞争。
 - 更新资产选择测试通过；`1.0.20 (21)` 的 arm64 与 x86_64 隔离 ad-hoc App 均完成编译、严格签名与精确 thin 架构复核。arm64 实际界面验证分别从临时面板与固定面板按齿轮按钮的真实屏幕坐标点击后，均只显示 `Y-Clip 设置`，且 AX `main=true`、`focused=true`。正式双架构发布验证仍待从最终提交执行。
 - 正式发布前两轮均在 arm64 全套公证/挂载复核通过后，因 Apple 时间戳服务在 x86_64 App 签名阶段瞬时不可用而 fail closed，未切换任何 `v1.0.20` 最终资产。`build.sh` 因此新增仅匹配该明确时间戳错误的 4 次有限退避重试；证书、权限或其他签名错误仍立即失败。
+- 从最终发布源码提交 `f304446` 重新运行 `release.sh` 成功；x86_64 首次签名再次遇到时间戳服务不可用，5 秒后的受限重试成功，证明恢复逻辑生效。arm64 与 x86_64 的 App、隐藏兼容 App 和 DMG 均分别完成 Developer ID 签名、公证、staple、Gatekeeper、`hdiutil verify`、最终只读挂载、版本/build 与精确 thin 架构复核。最终 arm64 DMG 为 `2,876,867` bytes，SHA256 `97895f5b94a70b2e43892d7d8326a7b05e6cb387abfb5fc2fa4e74f3f1d9f7a6`；x86_64 DMG 为 `2,911,586` bytes，SHA256 `37134aeb8ea57b6afe19edc76f75efc4e47b3671b002965943ab27676d0dcc00`。
+- 从最终 arm64 DMG 可回滚覆盖安装 `/Applications/Y-Clip.app`，确认正式安装版为 `1.0.20 (21)`、严格签名、stapled ticket、Gatekeeper 与 arm64 thin 架构通过且仅运行一个正式进程；实际点击临时与固定面板齿轮后，设置窗口均为 AX 主窗口和焦点窗口。x86_64 最终 DMG 中严格 thin 的 App 通过 Rosetta 启动存活冒烟后已终止。
+- 源码提交、annotated tag `v1.0.20` 与 `main` 已推送；GitHub Release `https://github.com/Rainchen537/Y-Clip/releases/tag/v1.0.20` 已公开。latest-release API 确认恰好包含两份 DMG，arm64 排在首位，远端名称、顺序、bytes、SHA-256 digest 与本地最终文件一致，tag 精确解析到 `f304446`。
 
 ## 2026-07-22
 
