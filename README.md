@@ -105,3 +105,5 @@ MIT License
 <div align="center">
 <sub>用 ❤️ 为 macOS 打造</sub>
 </div>
+
+友情链接：[Linux.do](https://linux.do/)
