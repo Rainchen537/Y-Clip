@@ -10,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var historyStore = ClipboardHistoryStore(maxItems: settingsStore.maxHistoryItems)
     private let softwareUpdateController = SoftwareUpdateController()
     private let panelController = ClipboardPanelController()
+    private var curatedStore: CuratedClipboardStore?
+    private var curatedPanelController: CuratedClipboardPanelController?
+    private var standalonePanels: [UUID: StandaloneSnippetController] = [:]
     private lazy var permissionPromptCoordinator = YPermissionPromptCoordinator(
         configuration: YPermissionPromptConfiguration(
             appName: "Y-Clip",
@@ -65,6 +68,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.openSettings()
             }
         }
+        panelController.onOpenCuratedPanel = { [weak self] in
+            guard let self else { return }
+            if !panelController.isPinned {
+                panelController.dismissForSettingsTransition()
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.openCuratedPanel()
+            }
+        }
+        panelController.onAddToCurated = { [weak self] item in
+            self?.addToCurated(item)
+        }
+        panelController.onSplitToCurated = { [weak self] item in
+            self?.splitIntoCurated(item)
+        }
+        panelController.onStickOut = { [weak self] item in
+            self?.stickOut(item)
+        }
 
         showSettingsForPreviewIfRequested()
         UpdateLaunchReadiness.markApplicationReady()
@@ -90,12 +111,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.image = StatusBarIcon.makeImage()
         item.button?.imagePosition = .imageOnly
         item.button?.toolTip = "Y-Clip"
-        item.menu = YProjectStatusMenu.make(
+        let menu = YProjectStatusMenu.make(
             target: self,
             openSettingsAction: #selector(openSettings),
             quitAction: #selector(quit),
             appName: "Y-Clip"
         )
+        let curatedItem = NSMenuItem(
+            title: "打开精选面板",
+            action: #selector(openCuratedPanel),
+            keyEquivalent: ""
+        )
+        curatedItem.target = self
+        menu.insertItem(curatedItem, at: 0)
+        item.menu = menu
 
         statusItem = item
     }
@@ -158,6 +187,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         settingsWindowController?.show()
+    }
+
+    @objc private func openCuratedPanel() {
+        ensureCuratedPanel()?.show()
+    }
+
+    private func ensureCuratedPanel() -> CuratedClipboardPanelController? {
+        if let curatedPanelController {
+            return curatedPanelController
+        }
+        do {
+            let store = try CuratedClipboardStore()
+            let controller = CuratedClipboardPanelController(store: store)
+            controller.onError = { [weak self] message in
+                self?.showAlert(title: "精选面板", message: message)
+            }
+            curatedStore = store
+            curatedPanelController = controller
+            return controller
+        } catch {
+            showAlert(title: "无法打开精选面板", message: error.localizedDescription)
+            return nil
+        }
+    }
+
+    private func addToCurated(_ item: ClipboardItem) {
+        guard let controller = ensureCuratedPanel(), let store = curatedStore else { return }
+        do {
+            let imageURL = item.image.map { historyStore.imageURL(for: $0) }
+            try store.addFromHistory(item, imageURL: imageURL)
+            if !panelController.isPinned {
+                panelController.dismissForSettingsTransition()
+            }
+            DispatchQueue.main.async {
+                controller.show()
+            }
+        } catch {
+            showAlert(title: "加入精选面板失败", message: error.localizedDescription)
+        }
+    }
+
+    private func splitIntoCurated(_ item: ClipboardItem) {
+        guard let text = item.text, let controller = ensureCuratedPanel() else { return }
+        if !panelController.isPinned {
+            panelController.dismissForSettingsTransition()
+        }
+        DispatchQueue.main.async {
+            controller.showEditor(prefill: text)
+        }
+    }
+
+    private func stickOut(_ item: ClipboardItem) {
+        let imageData: Data?
+        if let payload = item.image {
+            guard let data = try? Data(contentsOf: historyStore.imageURL(for: payload)) else {
+                showAlert(title: "无法贴出", message: "原图片已不在剪贴板历史中。")
+                return
+            }
+            imageData = data
+        } else {
+            imageData = nil
+        }
+
+        let controller = StandaloneSnippetController(item: item, imageData: imageData)
+        controller.onClose = { [weak self] id in
+            self?.standalonePanels.removeValue(forKey: id)
+        }
+        standalonePanels[controller.id] = controller
+        let point = NSEvent.mouseLocation
+        if !panelController.isPinned {
+            panelController.dismissForSettingsTransition()
+        }
+        DispatchQueue.main.async {
+            controller.show(near: point)
+        }
     }
 
     private func showSettingsForPreviewIfRequested() {

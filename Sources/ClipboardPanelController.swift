@@ -88,8 +88,12 @@ struct HistoryPanelMetrics: Codable, Equatable {
 final class HistoryRowView: NSView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let thumbView = NSImageView()
+    private let actionsButton = NSButton()
     private let onChoose: () -> Void
     private var trackingAreaRef: NSTrackingArea?
+    var onAddToCurated: (() -> Void)?
+    var onSplitToCurated: (() -> Void)?
+    var onStickOut: (() -> Void)?
 
     /// 鼠标进入/离开本行时回调，由 controller 按真实鼠标位置统一重算 hover，
     /// 避免滚动时 enter/exit 不配对导致多行同时高亮。
@@ -125,6 +129,19 @@ final class HistoryRowView: NSView {
         layer?.cornerRadius = 8
 
         heightAnchor.constraint(equalToConstant: metrics.rowHeight).isActive = true
+        actionsButton.title = "操作"
+        actionsButton.bezelStyle = .rounded
+        actionsButton.controlSize = .small
+        actionsButton.toolTip = "加入精选面板或单独贴出"
+        actionsButton.target = self
+        actionsButton.action = #selector(showActions)
+        actionsButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(actionsButton)
+        NSLayoutConstraint.activate([
+            actionsButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -metrics.contentInset),
+            actionsButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            actionsButton.widthAnchor.constraint(equalToConstant: 45)
+        ])
 
         if let thumbnail {
             // 图片项：固定尺寸缩略图 + 右侧尺寸说明，块高度与文本项一致。
@@ -153,7 +170,7 @@ final class HistoryRowView: NSView {
                 thumbView.widthAnchor.constraint(equalToConstant: side),
                 thumbView.heightAnchor.constraint(equalToConstant: side),
                 titleLabel.leadingAnchor.constraint(equalTo: thumbView.trailingAnchor, constant: 10 * metrics.scale),
-                titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -metrics.contentInset),
+                titleLabel.trailingAnchor.constraint(equalTo: actionsButton.leadingAnchor, constant: -8),
                 titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
             ])
         } else {
@@ -172,7 +189,7 @@ final class HistoryRowView: NSView {
 
             NSLayoutConstraint.activate([
                 titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: metrics.contentInset),
-                titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -metrics.contentInset),
+                titleLabel.trailingAnchor.constraint(equalTo: actionsButton.leadingAnchor, constant: -8),
                 titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
                 titleLabel.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 10 * metrics.scale),
                 titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -10 * metrics.scale)
@@ -213,6 +230,34 @@ final class HistoryRowView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         onChoose()
+    }
+
+    @objc private func showActions() {
+        let menu = NSMenu()
+        let add = NSMenuItem(title: "加入精选面板", action: #selector(addToCurated), keyEquivalent: "")
+        add.target = self
+        menu.addItem(add)
+        if onSplitToCurated != nil {
+            let split = NSMenuItem(title: "拆分到精选面板", action: #selector(splitToCurated), keyEquivalent: "")
+            split.target = self
+            menu.addItem(split)
+        }
+        let stick = NSMenuItem(title: "单独贴出", action: #selector(stickOut), keyEquivalent: "")
+        stick.target = self
+        menu.addItem(stick)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: actionsButton.bounds.height), in: actionsButton)
+    }
+
+    @objc private func addToCurated() {
+        onAddToCurated?()
+    }
+
+    @objc private func splitToCurated() {
+        onSplitToCurated?()
+    }
+
+    @objc private func stickOut() {
+        onStickOut?()
     }
 
     private func updateAppearance() {
@@ -257,6 +302,7 @@ final class ClipboardPanelController {
     private let stackView = TopAlignedStackView()
     private let headerLabel = NSTextField(labelWithString: "剪贴板历史")
     private let hintLabel = NSTextField(labelWithString: "↑↓ 选择 · Enter 粘贴 · Esc 关闭")
+    private let curatedButton = NSButton()
     private let pinButton = NSButton()
     private let settingsButton = NSButton()
     private var rowViews: [HistoryRowView] = []
@@ -274,6 +320,10 @@ final class ClipboardPanelController {
     /// 由外部注入：给定图片项，返回其全图文件 URL（用于生成缩略图）。
     var imageURLProvider: ((ImagePayload) -> URL)?
     var onOpenSettings: (() -> Void)?
+    var onOpenCuratedPanel: (() -> Void)?
+    var onAddToCurated: ((ClipboardItem) -> Void)?
+    var onSplitToCurated: ((ClipboardItem) -> Void)?
+    var onStickOut: ((ClipboardItem) -> Void)?
     var onPinnedFrameChange: ((NSRect) -> Void)?
 
     init() {
@@ -310,6 +360,14 @@ final class ClipboardPanelController {
         hintLabel.textColor = .secondaryLabelColor
         hintLabel.lineBreakMode = .byTruncatingTail
 
+        curatedButton.title = "精选"
+        curatedButton.bezelStyle = .rounded
+        curatedButton.controlSize = .small
+        curatedButton.target = self
+        curatedButton.action = #selector(openCuratedPanel)
+        curatedButton.toolTip = "打开精选剪贴板"
+        curatedButton.translatesAutoresizingMaskIntoConstraints = false
+
         pinButton.bezelStyle = .regularSquare
         pinButton.isBordered = false
         pinButton.imagePosition = .imageOnly
@@ -344,6 +402,7 @@ final class ClipboardPanelController {
 
         rootView.addSubview(headerStack)
         rootView.addSubview(dragHandleView)
+        rootView.addSubview(curatedButton)
         rootView.addSubview(pinButton)
         rootView.addSubview(settingsButton)
         rootView.addSubview(scrollView)
@@ -352,12 +411,15 @@ final class ClipboardPanelController {
         NSLayoutConstraint.activate([
             headerStack.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 12),
             headerStack.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 14),
-            headerStack.trailingAnchor.constraint(lessThanOrEqualTo: pinButton.leadingAnchor, constant: -10),
+            headerStack.trailingAnchor.constraint(lessThanOrEqualTo: curatedButton.leadingAnchor, constant: -8),
 
             dragHandleView.topAnchor.constraint(equalTo: rootView.topAnchor),
             dragHandleView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
-            dragHandleView.trailingAnchor.constraint(equalTo: pinButton.leadingAnchor, constant: -4),
+            dragHandleView.trailingAnchor.constraint(equalTo: curatedButton.leadingAnchor, constant: -4),
             dragHandleView.bottomAnchor.constraint(equalTo: scrollView.topAnchor),
+
+            curatedButton.trailingAnchor.constraint(equalTo: pinButton.leadingAnchor, constant: -5),
+            curatedButton.centerYAnchor.constraint(equalTo: headerStack.centerYAnchor),
 
             pinButton.trailingAnchor.constraint(equalTo: settingsButton.leadingAnchor, constant: -4),
             pinButton.centerYAnchor.constraint(equalTo: headerStack.centerYAnchor),
@@ -513,6 +575,11 @@ final class ClipboardPanelController {
         onOpenSettings?()
     }
 
+    @objc private func openCuratedPanel() {
+        endOutsideClickMonitoring()
+        onOpenCuratedPanel?()
+    }
+
     @objc private func togglePinned() {
         applyPinnedState(!isPinned)
         if isPinned {
@@ -663,6 +730,17 @@ final class ClipboardPanelController {
             let thumbnail = thumbnail(for: item)
             let row = HistoryRowView(item: item, thumbnail: thumbnail, metrics: metrics) { [weak self] in
                 self?.chooseItem(at: index)
+            }
+            row.onAddToCurated = { [weak self] in
+                self?.onAddToCurated?(item)
+            }
+            if item.text != nil {
+                row.onSplitToCurated = { [weak self] in
+                    self?.onSplitToCurated?(item)
+                }
+            }
+            row.onStickOut = { [weak self] in
+                self?.onStickOut?(item)
             }
             row.onHoverProbe = { [weak self] in
                 self?.updateHover()
