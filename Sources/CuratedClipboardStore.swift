@@ -10,12 +10,12 @@ enum CuratedClipboardError: LocalizedError {
         case .emptyText:
             return "请先选中或输入要添加的内容。"
         case .missingImage:
-            return "原图片已不在剪贴板历史中，无法加入精选面板。"
+            return "原图片已不在剪贴板历史中，无法加入复制清单。"
         }
     }
 }
 
-/// 精选面板有自己的存储区，避免普通历史淘汰时删掉用户挑选的图片。
+/// 复制清单有自己的存储区，避免普通历史淘汰时删掉用户挑选的图片。
 final class CuratedClipboardStore {
     private let directory: URL
     private let saveURL: URL

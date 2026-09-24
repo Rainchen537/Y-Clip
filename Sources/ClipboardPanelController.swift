@@ -132,7 +132,7 @@ final class HistoryRowView: NSView {
         actionsButton.title = "操作"
         actionsButton.bezelStyle = .rounded
         actionsButton.controlSize = .small
-        actionsButton.toolTip = "加入精选面板或单独贴出"
+        actionsButton.toolTip = "加入复制清单或单独贴出"
         actionsButton.target = self
         actionsButton.action = #selector(showActions)
         actionsButton.translatesAutoresizingMaskIntoConstraints = false
@@ -234,11 +234,11 @@ final class HistoryRowView: NSView {
 
     @objc private func showActions() {
         let menu = NSMenu()
-        let add = NSMenuItem(title: "加入精选面板", action: #selector(addToCurated), keyEquivalent: "")
+        let add = NSMenuItem(title: "加入复制清单", action: #selector(addToCurated), keyEquivalent: "")
         add.target = self
         menu.addItem(add)
         if onSplitToCurated != nil {
-            let split = NSMenuItem(title: "拆分到精选面板", action: #selector(splitToCurated), keyEquivalent: "")
+            let split = NSMenuItem(title: "拆分后加入复制清单", action: #selector(splitToCurated), keyEquivalent: "")
             split.target = self
             menu.addItem(split)
         }
@@ -360,12 +360,12 @@ final class ClipboardPanelController {
         hintLabel.textColor = .secondaryLabelColor
         hintLabel.lineBreakMode = .byTruncatingTail
 
-        curatedButton.title = "精选"
+        curatedButton.title = "复制清单"
         curatedButton.bezelStyle = .rounded
         curatedButton.controlSize = .small
         curatedButton.target = self
         curatedButton.action = #selector(openCuratedPanel)
-        curatedButton.toolTip = "打开精选剪贴板"
+        curatedButton.toolTip = "打开复制清单"
         curatedButton.translatesAutoresizingMaskIntoConstraints = false
 
         pinButton.bezelStyle = .regularSquare

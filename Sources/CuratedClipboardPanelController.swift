@@ -13,7 +13,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
     private let rowStack = CuratedRowsStackView()
     private let listScrollView = NSScrollView()
     private let editorView = NSView()
-    private let titleLabel = NSTextField(labelWithString: "精选")
+    private let titleLabel = NSTextField(labelWithString: "复制清单")
     private let countLabel = NSTextField(labelWithString: "")
     private let editButton = NSButton()
     private var editorTextView: NSTextView?
@@ -85,7 +85,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         guard isEditing else { return }
         let current = panel.frame
         isEditing = false
-        titleLabel.stringValue = "精选"
+        titleLabel.stringValue = "复制清单"
         editButton.title = "添加 / 拆分"
         panel.makeFirstResponder(nil)
         editorView.isHidden = true
@@ -120,7 +120,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
     }
 
     private func configurePanel() {
-        panel.title = "精选剪贴板"
+        panel.title = "复制清单"
         panel.isReleasedWhenClosed = false
         panel.level = .floating
         panel.hidesOnDeactivate = false
@@ -246,7 +246,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         removeButton.bezelStyle = .inline
         removeButton.controlSize = .small
         removeButton.identifier = NSUserInterfaceItemIdentifier(item.id.uuidString)
-        removeButton.toolTip = "从精选面板移除"
+        removeButton.toolTip = "从复制清单移除"
         removeButton.translatesAutoresizingMaskIntoConstraints = false
 
         row.addSubview(preview)
@@ -321,7 +321,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
     }
 
     private func configureEditorView() {
-        let instruction = NSTextField(labelWithString: "粘贴或输入内容，选中一段后加入精选面板")
+        let instruction = NSTextField(labelWithString: "粘贴或输入内容，选中一段后加入复制清单")
         instruction.font = .systemFont(ofSize: 13, weight: .medium)
         instruction.translatesAutoresizingMaskIntoConstraints = false
 

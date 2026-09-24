@@ -13,7 +13,7 @@
 
 ## 项目简介
 
-Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windows `Win + V` 的剪贴板历史体验搬到 macOS。默认 `Option + Command + V` 会在当前光标附近弹出临时历史面板；独立的固定面板快捷键默认是 `Option + Shift + Command + V`，会恢复可拖拽位置并让面板持续浮在普通窗口上方。两种模式都支持文字和图片历史、自动粘贴、菜单栏设置面板、开机启动、自动更新和辅助功能权限修复。审阅分支另有独立的精选面板和单条贴出浮窗；精选内容由用户从历史选取或手动划分，不随普通历史滚动。
+Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windows `Win + V` 的剪贴板历史体验搬到 macOS。默认 `Option + Command + V` 会在当前光标附近弹出临时历史面板；独立的固定面板快捷键默认是 `Option + Shift + Command + V`，会恢复可拖拽位置并让面板持续浮在普通窗口上方。两种模式都支持文字和图片历史、自动粘贴、菜单栏设置面板、开机启动、自动更新和辅助功能权限修复。审阅分支另有独立的「复制清单」与单条贴出浮窗；清单内容由用户从历史选取或手动划分，不随普通历史滚动。
 
 这个项目曾叫 Global Clipboard。为了保持用户权限、历史数据和自动更新连续性，以下内部标识不要随意修改：
 
@@ -36,12 +36,12 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 - `Sources/SoftwareUpdateAssetSelector.swift`、`Tests/SoftwareUpdateAssetSelectorTests.swift`：可独立测试的更新资产完整名称选择、严格版本比较、下载 App 内部版本精确匹配与 thin 架构判断逻辑，覆盖资产顺序、无关 DMG、缺失架构、旧包改名、同版本、降级、异常版本、架构不匹配和 universal 拒绝。
 - `Sources/StatusBarIcon.swift`：菜单栏线性描边小图标。
 - `Sources/ClipboardHistoryStore.swift`：剪贴板监听、历史记录、图片落盘。
-- `Sources/CuratedClipboardStore.swift`：精选条目的独立持久化与图片副本；普通历史淘汰不会清理精选图片。
+- `Sources/CuratedClipboardStore.swift`：复制清单条目的独立持久化与图片副本；普通历史淘汰不会清理清单图片。
 - `Sources/CuratedTextSelection.swift`：按 NSTextView 的 UTF-16 选区精确提取用户划定的文本片段。
-- `Sources/CuratedClipboardPanelController.swift`：仅展示精选条目的常驻小面板、逐条复制/移除，以及同一窗口内长文本手动选择片段的编辑状态；编辑时不再创建第二个 NSPanel。
+- `Sources/CuratedClipboardPanelController.swift`：仅展示复制清单条目的常驻小面板、逐条复制/移除，以及同一窗口内长文本手动选择片段的编辑状态；编辑时不再创建第二个 NSPanel。
 - `Sources/StandaloneSnippetController.swift`：无标题栏、无描边的文字或图片贴出浮窗；拖内容中间移动，拖边角或滚轮等比缩放，悬停/右键菜单只复制原内容或移除，移除不删除历史。
 - `Tests/StandaloneSnippetResizeTests.swift`、`test_standalone_snippet.sh`：验证边缘/角落拖动缩放时的比例、对侧锚点与最小尺寸。
-- `Tests/CuratedClipboardStoreTests.swift`、`test_curated_clipboard.sh`：精选内容保存、单条复制、UTF-16 选区与历史图片独立保存的测试。
+- `Tests/CuratedClipboardStoreTests.swift`、`test_curated_clipboard.sh`：复制清单内容保存、单条复制、UTF-16 选区与历史图片独立保存的测试。
 - `build.sh`：默认以 `TARGET_ARCH=arm64` 构建 thin `build/Y-Clip.app`，也支持白名单内的 `x86_64`，可通过 `BUILD_DIR` / `APP_PATH` 隔离输出；同时编译 vendored 的 Setting 与 Permission Swift 框架。
 - `make_dmg.sh`：共享 DMG 框架的薄配置入口；支持 `APP_NAME_OVERRIDE`、`APP_PATH_OVERRIDE`、`VOLUME_NAME_OVERRIDE`、`DMG_OUTPUT_PATH_OVERRIDE`（兼容 `OUTPUT_PATH_OVERRIDE`）。
 - `Y-Framework/Permission/YPermissionPromptFramework.swift`：首次启动与后续权限弹窗、状态指纹和正式安装副本防护。

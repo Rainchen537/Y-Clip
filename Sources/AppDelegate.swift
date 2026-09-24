@@ -118,7 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appName: "Y-Clip"
         )
         let curatedItem = NSMenuItem(
-            title: "打开精选面板",
+            title: "打开复制清单",
             action: #selector(openCuratedPanel),
             keyEquivalent: ""
         )
@@ -201,13 +201,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let store = try CuratedClipboardStore()
             let controller = CuratedClipboardPanelController(store: store)
             controller.onError = { [weak self] message in
-                self?.showAlert(title: "精选面板", message: message)
+                self?.showAlert(title: "复制清单", message: message)
             }
             curatedStore = store
             curatedPanelController = controller
             return controller
         } catch {
-            showAlert(title: "无法打开精选面板", message: error.localizedDescription)
+            showAlert(title: "无法打开复制清单", message: error.localizedDescription)
             return nil
         }
     }
@@ -224,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 controller.show()
             }
         } catch {
-            showAlert(title: "加入精选面板失败", message: error.localizedDescription)
+            showAlert(title: "加入复制清单失败", message: error.localizedDescription)
         }
     }
 
