@@ -16,6 +16,16 @@ struct HotKey: Codable, Equatable {
         modifiers: UInt32(optionKey) | UInt32(shiftKey) | UInt32(cmdKey)
     )
 
+    static let copyListDefault = HotKey(
+        keyCode: UInt32(kVK_ANSI_C),
+        modifiers: UInt32(optionKey) | UInt32(shiftKey) | UInt32(cmdKey)
+    )
+
+    static let standaloneDefault = HotKey(
+        keyCode: UInt32(kVK_ANSI_P),
+        modifiers: UInt32(optionKey) | UInt32(shiftKey) | UInt32(cmdKey)
+    )
+
     var displayName: String {
         var value = ""
 

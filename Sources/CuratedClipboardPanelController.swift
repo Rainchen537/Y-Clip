@@ -49,6 +49,14 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         panel.makeKeyAndOrderFront(nil)
     }
 
+    func toggle() {
+        if panel.isVisible {
+            panel.orderOut(nil)
+        } else {
+            show()
+        }
+    }
+
     func showEditor(prefill: String? = nil) {
         show()
         if !isEditing {
