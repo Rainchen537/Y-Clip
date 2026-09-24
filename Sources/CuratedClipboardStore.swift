@@ -4,6 +4,10 @@ import Foundation
 enum CuratedClipboardError: LocalizedError {
     case emptyText
     case missingImage
+    case itemUnavailable
+    case textOnly
+    case requiresTwoSegments
+    case requiresTwoItems
 
     var errorDescription: String? {
         switch self {
@@ -11,6 +15,14 @@ enum CuratedClipboardError: LocalizedError {
             return "请先选中或输入要添加的内容。"
         case .missingImage:
             return "原图片已不在剪贴板历史中，无法加入复制清单。"
+        case .itemUnavailable:
+            return "要编辑的内容已不在复制清单中。"
+        case .textOnly:
+            return "目前只能拆分或合并文字内容。"
+        case .requiresTwoSegments:
+            return "请至少加入两段内容，再保存拆分。"
+        case .requiresTwoItems:
+            return "请至少选中两条文字，再合并。"
         }
     }
 }
@@ -98,6 +110,54 @@ final class CuratedClipboardStore {
            let imageURL = imageURL(for: payload) {
             try? FileManager.default.removeItem(at: imageURL)
         }
+    }
+
+    @discardableResult
+    func splitText(_ id: UUID, into segments: [String]) throws -> [ClipboardItem] {
+        guard let index = items.firstIndex(where: { $0.id == id }) else {
+            throw CuratedClipboardError.itemUnavailable
+        }
+        guard items[index].text != nil else {
+            throw CuratedClipboardError.textOnly
+        }
+        guard segments.count >= 2 else {
+            throw CuratedClipboardError.requiresTwoSegments
+        }
+        guard segments.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            throw CuratedClipboardError.emptyText
+        }
+
+        let replacements = segments.map { ClipboardItem(text: $0) }
+        var next = items
+        next.replaceSubrange(index...index, with: replacements)
+        try replaceItems(next)
+        return replacements
+    }
+
+    @discardableResult
+    func mergeText(_ ids: [UUID], into text: String) throws -> ClipboardItem {
+        let selected = Set(ids)
+        guard selected.count >= 2 else {
+            throw CuratedClipboardError.requiresTwoItems
+        }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CuratedClipboardError.emptyText
+        }
+        guard items.filter({ selected.contains($0.id) }).count == selected.count else {
+            throw CuratedClipboardError.itemUnavailable
+        }
+        guard items.filter({ selected.contains($0.id) }).allSatisfy({ $0.text != nil }) else {
+            throw CuratedClipboardError.textOnly
+        }
+
+        let firstIndex = items.firstIndex(where: { selected.contains($0.id) })!
+        let merged = ClipboardItem(text: text)
+        let next = items.enumerated().compactMap { index, item -> ClipboardItem? in
+            guard selected.contains(item.id) else { return item }
+            return index == firstIndex ? merged : nil
+        }
+        try replaceItems(next)
+        return merged
     }
 
     func imageURL(for payload: ImagePayload) -> URL? {

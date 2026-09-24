@@ -92,7 +92,6 @@ final class HistoryRowView: NSView {
     private let onChoose: () -> Void
     private var trackingAreaRef: NSTrackingArea?
     var onAddToCurated: (() -> Void)?
-    var onSplitToCurated: (() -> Void)?
     var onStickOut: (() -> Void)?
 
     /// 鼠标进入/离开本行时回调，由 controller 按真实鼠标位置统一重算 hover，
@@ -237,11 +236,6 @@ final class HistoryRowView: NSView {
         let add = NSMenuItem(title: "加入复制清单", action: #selector(addToCurated), keyEquivalent: "")
         add.target = self
         menu.addItem(add)
-        if onSplitToCurated != nil {
-            let split = NSMenuItem(title: "拆分后加入复制清单", action: #selector(splitToCurated), keyEquivalent: "")
-            split.target = self
-            menu.addItem(split)
-        }
         let stick = NSMenuItem(title: "单独贴出", action: #selector(stickOut), keyEquivalent: "")
         stick.target = self
         menu.addItem(stick)
@@ -250,10 +244,6 @@ final class HistoryRowView: NSView {
 
     @objc private func addToCurated() {
         onAddToCurated?()
-    }
-
-    @objc private func splitToCurated() {
-        onSplitToCurated?()
     }
 
     @objc private func stickOut() {
@@ -322,7 +312,6 @@ final class ClipboardPanelController {
     var onOpenSettings: (() -> Void)?
     var onOpenCuratedPanel: (() -> Void)?
     var onAddToCurated: ((ClipboardItem) -> Void)?
-    var onSplitToCurated: ((ClipboardItem) -> Void)?
     var onStickOut: ((ClipboardItem) -> Void)?
     var onPinnedFrameChange: ((NSRect) -> Void)?
 
@@ -733,11 +722,6 @@ final class ClipboardPanelController {
             }
             row.onAddToCurated = { [weak self] in
                 self?.onAddToCurated?(item)
-            }
-            if item.text != nil {
-                row.onSplitToCurated = { [weak self] in
-                    self?.onSplitToCurated?(item)
-                }
             }
             row.onStickOut = { [weak self] in
                 self?.onStickOut?(item)

@@ -86,9 +86,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController.onAddToCurated = { [weak self] item in
             self?.addToCurated(item)
         }
-        panelController.onSplitToCurated = { [weak self] item in
-            self?.splitIntoCurated(item)
-        }
         panelController.onStickOut = { [weak self] item in
             self?.stickOut(item)
         }
@@ -252,16 +249,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } catch {
             showAlert(title: "加入复制清单失败", message: error.localizedDescription)
-        }
-    }
-
-    private func splitIntoCurated(_ item: ClipboardItem) {
-        guard let text = item.text, let controller = ensureCuratedPanel() else { return }
-        if !panelController.isPinned {
-            panelController.dismissForSettingsTransition()
-        }
-        DispatchQueue.main.async {
-            controller.showEditor(prefill: text)
         }
     }
 

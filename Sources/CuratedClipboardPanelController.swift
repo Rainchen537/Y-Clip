@@ -7,6 +7,11 @@ private final class CuratedRowsStackView: NSStackView {
 /// 与完整历史面板分开的常驻面板，只显示用户明确加入的条目。
 final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextViewDelegate {
     private static let frameKey = "curatedPanelFrame"
+    private enum EditorPurpose {
+        case add
+        case split(UUID)
+        case merge([UUID])
+    }
 
     private let store: CuratedClipboardStore
     private let panel: NSPanel
@@ -16,10 +21,22 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
     private let titleLabel = NSTextField(labelWithString: "复制清单")
     private let countLabel = NSTextField(labelWithString: "")
     private let editButton = NSButton()
+    private let mergeButton = NSButton()
+    private let editorInstructionLabel = NSTextField(labelWithString: "")
+    private let editorSourceScrollView = NSScrollView()
+    private let draftPreviewScrollView = NSScrollView()
+    private let draftPreviewTextView = NSTextView(frame: .zero)
     private var editorTextView: NSTextView?
     private var addSelectionButton: NSButton?
     private var addWholeButton: NSButton?
+    private var undoSegmentButton: NSButton?
+    private var sourceBottomDirectConstraint: NSLayoutConstraint?
+    private var sourceBottomToPreviewConstraint: NSLayoutConstraint?
     private var isEditing = false
+    private var isSelectingMerge = false
+    private var selectedMergeIDs: Set<UUID> = []
+    private var editorPurpose: EditorPurpose = .add
+    private var pendingSegments: [String] = []
     private var listFrameBeforeEditing: NSRect?
 
     var onError: ((String) -> Void)?
@@ -57,21 +74,51 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         }
     }
 
-    func showEditor(prefill: String? = nil) {
+    private func beginEditing(_ purpose: EditorPurpose, prefill: String) {
         show()
+        editorPurpose = purpose
+        pendingSegments = []
+        isSelectingMerge = false
+        selectedMergeIDs = []
         if !isEditing {
             listFrameBeforeEditing = panel.frame
             isEditing = true
-            titleLabel.stringValue = "拆分内容"
-            editButton.title = "完成"
             listScrollView.isHidden = true
             editorView.isHidden = false
             resizeForEditing()
         }
-        if let prefill {
-            editorTextView?.string = prefill
-            editorTextView?.setSelectedRange(NSRange(location: 0, length: 0))
+        mergeButton.isHidden = true
+        switch purpose {
+        case .add:
+            titleLabel.stringValue = "添加内容"
+            editButton.title = "完成"
+            editorInstructionLabel.stringValue = "粘贴或输入内容，先加入清单，再按需拆分"
+            addSelectionButton?.isHidden = true
+            undoSegmentButton?.isHidden = true
+            addWholeButton?.title = "加入清单"
+            showDraftPreview(false)
+        case .split:
+            titleLabel.stringValue = "拆分现有内容"
+            editButton.title = "取消"
+            editorInstructionLabel.stringValue = "选中要单独复制的部分，逐段加入下方结果"
+            addSelectionButton?.title = "加入片段"
+            addSelectionButton?.isHidden = false
+            undoSegmentButton?.isHidden = false
+            addWholeButton?.title = "保存拆分"
+            showDraftPreview(true)
+            updateDraftPreview()
+        case .merge:
+            titleLabel.stringValue = "合并现有内容"
+            editButton.title = "取消"
+            editorInstructionLabel.stringValue = "编辑合并后的文字，保存后替换所选条目"
+            addSelectionButton?.isHidden = true
+            undoSegmentButton?.isHidden = true
+            addWholeButton?.title = "保存合并"
+            showDraftPreview(false)
         }
+        editorTextView?.string = prefill
+        editorTextView?.setSelectedRange(NSRange(location: 0, length: 0))
+        updateHeaderCount()
         refreshEditorButtons()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
@@ -93,11 +140,15 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         guard isEditing else { return }
         let current = panel.frame
         isEditing = false
+        editorPurpose = .add
+        pendingSegments = []
         titleLabel.stringValue = "复制清单"
-        editButton.title = "添加 / 拆分"
+        editButton.title = "添加"
+        mergeButton.title = "合并"
         panel.makeFirstResponder(nil)
         editorView.isHidden = true
         listScrollView.isHidden = false
+        mergeButton.isHidden = false
         panel.minSize = NSSize(width: 285, height: 180)
         if let saved = listFrameBeforeEditing {
             let screen = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? current
@@ -107,6 +158,8 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         }
         listFrameBeforeEditing = nil
         UserDefaults.standard.set(NSStringFromRect(panel.frame), forKey: Self.frameKey)
+        updateHeaderCount()
+        renderRows()
     }
 
     func windowDidMove(_ notification: Notification) {
@@ -148,13 +201,20 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         countLabel.textColor = .secondaryLabelColor
         countLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        editButton.title = "添加 / 拆分"
+        editButton.title = "添加"
         editButton.bezelStyle = .rounded
         editButton.controlSize = .small
         editButton.target = self
         editButton.action = #selector(openEditor)
-        editButton.toolTip = "手动输入，或选取长文本中的片段"
+        editButton.toolTip = "手动输入内容到复制清单"
         editButton.translatesAutoresizingMaskIntoConstraints = false
+        mergeButton.title = "合并"
+        mergeButton.bezelStyle = .rounded
+        mergeButton.controlSize = .small
+        mergeButton.target = self
+        mergeButton.action = #selector(mergeAction)
+        mergeButton.toolTip = "选择清单中已有的文字条目并合并"
+        mergeButton.translatesAutoresizingMaskIntoConstraints = false
 
         listScrollView.drawsBackground = false
         listScrollView.hasVerticalScroller = true
@@ -173,6 +233,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         root.addSubview(titleLabel)
         root.addSubview(countLabel)
         root.addSubview(editButton)
+        root.addSubview(mergeButton)
         root.addSubview(listScrollView)
         root.addSubview(editorView)
 
@@ -181,7 +242,9 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
             titleLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
             countLabel.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
             countLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
-            countLabel.trailingAnchor.constraint(lessThanOrEqualTo: editButton.leadingAnchor, constant: -8),
+            countLabel.trailingAnchor.constraint(lessThanOrEqualTo: mergeButton.leadingAnchor, constant: -8),
+            mergeButton.trailingAnchor.constraint(equalTo: editButton.leadingAnchor, constant: -5),
+            mergeButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             editButton.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
             editButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
 
@@ -202,7 +265,10 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
     }
 
     private func renderRows() {
-        countLabel.stringValue = "\(store.items.count) 条"
+        updateHeaderCount()
+        mergeButton.isEnabled = isSelectingMerge
+            ? selectedMergeIDs.count >= 2
+            : store.items.filter { $0.text != nil }.count >= 2
         rowStack.arrangedSubviews.forEach { view in
             rowStack.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -220,10 +286,66 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         }
 
         for item in store.items {
-            let row = makeRow(for: item)
+            let row = isSelectingMerge ? makeMergeSelectionRow(for: item) : makeRow(for: item)
             rowStack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: rowStack.widthAnchor).isActive = true
         }
+    }
+
+    private func updateHeaderCount() {
+        if isEditing {
+            switch editorPurpose {
+            case .split:
+                countLabel.stringValue = "\(pendingSegments.count) 段"
+            case let .merge(ids):
+                countLabel.stringValue = "\(ids.count) 条"
+            case .add:
+                countLabel.stringValue = "\(store.items.count) 条"
+            }
+        } else if isSelectingMerge {
+            countLabel.stringValue = "已选 \(selectedMergeIDs.count) 条"
+        } else {
+            countLabel.stringValue = "\(store.items.count) 条"
+        }
+    }
+
+    private func makeMergeSelectionRow(for item: ClipboardItem) -> NSView {
+        let row = NSView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.wantsLayer = true
+        row.layer?.cornerRadius = 9
+        row.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.055).cgColor
+
+        let checkbox = NSButton(checkboxWithTitle: "", target: self, action: #selector(selectMergeItem(_:)))
+        checkbox.identifier = NSUserInterfaceItemIdentifier(item.id.uuidString)
+        checkbox.isEnabled = item.text != nil
+        checkbox.state = selectedMergeIDs.contains(item.id) ? .on : .off
+        checkbox.translatesAutoresizingMaskIntoConstraints = false
+
+        let preview = NSTextField(labelWithString: item.previewText)
+        preview.font = .systemFont(ofSize: 12.5, weight: .medium)
+        preview.maximumNumberOfLines = 2
+        preview.lineBreakMode = .byTruncatingTail
+        preview.alignment = .left
+        preview.textColor = item.text == nil ? .secondaryLabelColor : .labelColor
+        preview.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        preview.toolTip = item.text
+        preview.translatesAutoresizingMaskIntoConstraints = false
+
+        row.addSubview(checkbox)
+        row.addSubview(preview)
+        NSLayoutConstraint.activate([
+            row.heightAnchor.constraint(greaterThanOrEqualToConstant: 60),
+            checkbox.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 10),
+            checkbox.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            checkbox.widthAnchor.constraint(equalToConstant: 20),
+            preview.leadingAnchor.constraint(equalTo: checkbox.trailingAnchor, constant: 8),
+            preview.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -12),
+            preview.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            preview.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: 9),
+            preview.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -9)
+        ])
+        return row
     }
 
     private func makeRow(for item: ClipboardItem) -> NSView {
@@ -266,7 +388,6 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
             preview.centerYAnchor.constraint(equalTo: row.centerYAnchor),
             preview.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: 9),
             preview.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -9),
-            copyButton.leadingAnchor.constraint(equalTo: preview.trailingAnchor, constant: 8),
             copyButton.centerYAnchor.constraint(equalTo: row.centerYAnchor),
             copyButton.widthAnchor.constraint(equalToConstant: 56),
             removeButton.leadingAnchor.constraint(equalTo: copyButton.trailingAnchor, constant: 2),
@@ -289,8 +410,27 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
                 imageView.heightAnchor.constraint(equalToConstant: 40),
                 preview.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 8)
             ])
+            constraints.append(copyButton.leadingAnchor.constraint(equalTo: preview.trailingAnchor, constant: 8))
         } else {
             constraints.append(preview.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 12))
+            if item.text != nil {
+                let splitButton = NSButton(title: "拆分", target: self, action: #selector(splitItem(_:)))
+                splitButton.bezelStyle = .rounded
+                splitButton.controlSize = .small
+                splitButton.contentTintColor = .controlAccentColor
+                splitButton.identifier = NSUserInterfaceItemIdentifier(item.id.uuidString)
+                splitButton.toolTip = "把这条已有文字拆成多条"
+                splitButton.translatesAutoresizingMaskIntoConstraints = false
+                row.addSubview(splitButton)
+                constraints.append(contentsOf: [
+                    splitButton.leadingAnchor.constraint(equalTo: preview.trailingAnchor, constant: 5),
+                    splitButton.trailingAnchor.constraint(equalTo: copyButton.leadingAnchor, constant: -2),
+                    splitButton.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+                    splitButton.widthAnchor.constraint(equalToConstant: 46)
+                ])
+            } else {
+                constraints.append(copyButton.leadingAnchor.constraint(equalTo: preview.trailingAnchor, constant: 8))
+            }
         }
         NSLayoutConstraint.activate(constraints)
         return row
@@ -320,23 +460,65 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         }
     }
 
+    @objc private func splitItem(_ sender: NSButton) {
+        guard let id = sender.identifier.flatMap({ UUID(uuidString: $0.rawValue) }),
+              let text = store.items.first(where: { $0.id == id })?.text else { return }
+        beginEditing(.split(id), prefill: text)
+    }
+
+    @objc private func selectMergeItem(_ sender: NSButton) {
+        guard let id = sender.identifier.flatMap({ UUID(uuidString: $0.rawValue) }),
+              store.items.first(where: { $0.id == id })?.text != nil else { return }
+        if sender.state == .on {
+            selectedMergeIDs.insert(id)
+        } else {
+            selectedMergeIDs.remove(id)
+        }
+        updateHeaderCount()
+        mergeButton.isEnabled = selectedMergeIDs.count >= 2
+    }
+
+    @objc private func mergeAction() {
+        if isSelectingMerge {
+            let selected = store.items.filter { selectedMergeIDs.contains($0.id) && $0.text != nil }
+            guard selected.count >= 2 else { return }
+            beginEditing(
+                .merge(selected.map(\.id)),
+                prefill: selected.compactMap(\.text).joined(separator: "\n")
+            )
+        } else {
+            guard store.items.filter({ $0.text != nil }).count >= 2 else { return }
+            isSelectingMerge = true
+            selectedMergeIDs = []
+            titleLabel.stringValue = "选择文字"
+            editButton.title = "取消"
+            mergeButton.title = "下一步"
+            renderRows()
+        }
+    }
+
     @objc private func openEditor() {
         if isEditing {
             finishEditing()
+        } else if isSelectingMerge {
+            isSelectingMerge = false
+            selectedMergeIDs = []
+            titleLabel.stringValue = "复制清单"
+            editButton.title = "添加"
+            mergeButton.title = "合并"
+            renderRows()
         } else {
-            showEditor()
+            beginEditing(.add, prefill: "")
         }
     }
 
     private func configureEditorView() {
-        let instruction = NSTextField(labelWithString: "粘贴或输入内容，选中一段后加入复制清单")
-        instruction.font = .systemFont(ofSize: 13, weight: .medium)
-        instruction.translatesAutoresizingMaskIntoConstraints = false
+        editorInstructionLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        editorInstructionLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.borderType = .bezelBorder
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        editorSourceScrollView.hasVerticalScroller = true
+        editorSourceScrollView.borderType = .bezelBorder
+        editorSourceScrollView.translatesAutoresizingMaskIntoConstraints = false
 
         let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 460, height: 240))
         textView.isRichText = false
@@ -348,50 +530,96 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize.height = .greatestFiniteMagnitude
         textView.delegate = self
-        scrollView.documentView = textView
+        editorSourceScrollView.documentView = textView
         editorTextView = textView
 
-        let selectionButton = NSButton(title: "加入选中片段", target: self, action: #selector(addSelectedText))
+        draftPreviewScrollView.hasVerticalScroller = true
+        draftPreviewScrollView.borderType = .bezelBorder
+        draftPreviewScrollView.translatesAutoresizingMaskIntoConstraints = false
+        draftPreviewScrollView.isHidden = true
+        draftPreviewTextView.frame = NSRect(x: 0, y: 0, width: 460, height: 90)
+        draftPreviewTextView.isEditable = false
+        draftPreviewTextView.isSelectable = false
+        draftPreviewTextView.drawsBackground = false
+        draftPreviewTextView.font = .systemFont(ofSize: 12)
+        draftPreviewTextView.textColor = .secondaryLabelColor
+        draftPreviewTextView.isVerticallyResizable = true
+        draftPreviewTextView.autoresizingMask = [.width]
+        draftPreviewTextView.textContainer?.widthTracksTextView = true
+        draftPreviewTextView.textContainer?.containerSize.height = .greatestFiniteMagnitude
+        draftPreviewScrollView.documentView = draftPreviewTextView
+
+        let selectionButton = NSButton(title: "加入片段", target: self, action: #selector(addSelectedText))
         selectionButton.bezelStyle = .rounded
         selectionButton.translatesAutoresizingMaskIntoConstraints = false
+        selectionButton.isHidden = true
         addSelectionButton = selectionButton
 
-        let wholeButton = NSButton(title: "整段加入", target: self, action: #selector(addWholeText))
+        let wholeButton = NSButton(title: "加入清单", target: self, action: #selector(commitEditor))
         wholeButton.bezelStyle = .rounded
         wholeButton.translatesAutoresizingMaskIntoConstraints = false
         addWholeButton = wholeButton
 
-        editorView.addSubview(instruction)
-        editorView.addSubview(scrollView)
+        let undoButton = NSButton(title: "撤销上一段", target: self, action: #selector(undoSegment))
+        undoButton.bezelStyle = .rounded
+        undoButton.translatesAutoresizingMaskIntoConstraints = false
+        undoButton.isHidden = true
+        undoSegmentButton = undoButton
+
+        editorView.addSubview(editorInstructionLabel)
+        editorView.addSubview(editorSourceScrollView)
+        editorView.addSubview(draftPreviewScrollView)
+        editorView.addSubview(undoButton)
         editorView.addSubview(selectionButton)
         editorView.addSubview(wholeButton)
 
+        sourceBottomDirectConstraint = editorSourceScrollView.bottomAnchor.constraint(
+            equalTo: wholeButton.topAnchor, constant: -12
+        )
+        sourceBottomToPreviewConstraint = editorSourceScrollView.bottomAnchor.constraint(
+            equalTo: draftPreviewScrollView.topAnchor, constant: -8
+        )
         NSLayoutConstraint.activate([
-            instruction.topAnchor.constraint(equalTo: editorView.topAnchor, constant: 4),
-            instruction.leadingAnchor.constraint(equalTo: editorView.leadingAnchor, constant: 7),
-            instruction.trailingAnchor.constraint(lessThanOrEqualTo: editorView.trailingAnchor, constant: -7),
+            editorInstructionLabel.topAnchor.constraint(equalTo: editorView.topAnchor, constant: 4),
+            editorInstructionLabel.leadingAnchor.constraint(equalTo: editorView.leadingAnchor, constant: 7),
+            editorInstructionLabel.trailingAnchor.constraint(lessThanOrEqualTo: editorView.trailingAnchor, constant: -7),
 
-            scrollView.topAnchor.constraint(equalTo: instruction.bottomAnchor, constant: 12),
-            scrollView.leadingAnchor.constraint(equalTo: editorView.leadingAnchor, constant: 5),
-            scrollView.trailingAnchor.constraint(equalTo: editorView.trailingAnchor, constant: -5),
-            scrollView.bottomAnchor.constraint(equalTo: selectionButton.topAnchor, constant: -12),
+            editorSourceScrollView.topAnchor.constraint(equalTo: editorInstructionLabel.bottomAnchor, constant: 12),
+            editorSourceScrollView.leadingAnchor.constraint(equalTo: editorView.leadingAnchor, constant: 5),
+            editorSourceScrollView.trailingAnchor.constraint(equalTo: editorView.trailingAnchor, constant: -5),
 
-            selectionButton.trailingAnchor.constraint(equalTo: editorView.trailingAnchor, constant: -5),
-            selectionButton.bottomAnchor.constraint(equalTo: editorView.bottomAnchor, constant: -5),
-            wholeButton.trailingAnchor.constraint(equalTo: selectionButton.leadingAnchor, constant: -8),
-            wholeButton.centerYAnchor.constraint(equalTo: selectionButton.centerYAnchor)
+            draftPreviewScrollView.leadingAnchor.constraint(equalTo: editorView.leadingAnchor, constant: 5),
+            draftPreviewScrollView.trailingAnchor.constraint(equalTo: editorView.trailingAnchor, constant: -5),
+            draftPreviewScrollView.bottomAnchor.constraint(equalTo: wholeButton.topAnchor, constant: -12),
+            draftPreviewScrollView.heightAnchor.constraint(equalToConstant: 90),
+
+            wholeButton.trailingAnchor.constraint(equalTo: editorView.trailingAnchor, constant: -5),
+            wholeButton.bottomAnchor.constraint(equalTo: editorView.bottomAnchor, constant: -5),
+            selectionButton.trailingAnchor.constraint(equalTo: wholeButton.leadingAnchor, constant: -8),
+            selectionButton.centerYAnchor.constraint(equalTo: wholeButton.centerYAnchor),
+            undoButton.trailingAnchor.constraint(equalTo: selectionButton.leadingAnchor, constant: -8),
+            undoButton.centerYAnchor.constraint(equalTo: wholeButton.centerYAnchor)
         ])
+        sourceBottomDirectConstraint?.isActive = true
     }
 
     private func refreshEditorButtons() {
         guard let textView = editorTextView else { return }
         let text = textView.string
-        let range = textView.selectedRange()
-        addWholeButton?.isEnabled = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        addSelectionButton?.isEnabled = CuratedTextSelection.fragment(in: text, range: range) != nil
+        switch editorPurpose {
+        case .add, .merge:
+            addWholeButton?.isEnabled = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .split:
+            addWholeButton?.isEnabled = pendingSegments.count >= 2
+            addSelectionButton?.isEnabled = CuratedTextSelection.fragment(
+                in: text, range: textView.selectedRange()
+            ) != nil
+            undoSegmentButton?.isEnabled = !pendingSegments.isEmpty
+        }
     }
 
     @objc private func addSelectedText() {
+        guard case .split = editorPurpose else { return }
         guard let textView = editorTextView else { return }
         guard let selected = CuratedTextSelection.fragment(
             in: textView.string,
@@ -399,17 +627,50 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         ) else {
             return
         }
-        addText(selected)
+        pendingSegments.append(selected)
+        updateDraftPreview()
     }
 
-    @objc private func addWholeText() {
-        guard let text = editorTextView?.string else { return }
-        addText(text)
+    @objc private func undoSegment() {
+        guard !pendingSegments.isEmpty else { return }
+        pendingSegments.removeLast()
+        updateDraftPreview()
     }
 
-    private func addText(_ text: String) {
+    private func showDraftPreview(_ visible: Bool) {
+        sourceBottomDirectConstraint?.isActive = false
+        sourceBottomToPreviewConstraint?.isActive = false
+        draftPreviewScrollView.isHidden = !visible
+        if visible {
+            sourceBottomToPreviewConstraint?.isActive = true
+        } else {
+            sourceBottomDirectConstraint?.isActive = true
+        }
+    }
+
+    private func updateDraftPreview() {
+        draftPreviewTextView.string = pendingSegments.enumerated()
+            .map { index, text in "\(index + 1). \(text.replacingOccurrences(of: "\n", with: " ↵ "))" }
+            .joined(separator: "\n")
+        updateHeaderCount()
+        refreshEditorButtons()
+    }
+
+    @objc private func commitEditor() {
+        guard let textView = editorTextView else { return }
         do {
-            try store.addText(text)
+            switch editorPurpose {
+            case .add:
+                try store.addText(textView.string)
+                textView.string = ""
+                refreshEditorButtons()
+            case let .split(id):
+                try store.splitText(id, into: pendingSegments)
+                finishEditing()
+            case let .merge(ids):
+                try store.mergeText(ids, into: textView.string)
+                finishEditing()
+            }
         } catch {
             onError?(error.localizedDescription)
         }
