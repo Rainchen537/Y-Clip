@@ -11,11 +11,16 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
     private let store: CuratedClipboardStore
     private let panel: NSPanel
     private let rowStack = CuratedRowsStackView()
+    private let listScrollView = NSScrollView()
+    private let editorView = NSView()
+    private let titleLabel = NSTextField(labelWithString: "精选")
     private let countLabel = NSTextField(labelWithString: "")
-    private var editorWindow: NSPanel?
+    private let editButton = NSButton()
     private var editorTextView: NSTextView?
     private var addSelectionButton: NSButton?
     private var addWholeButton: NSButton?
+    private var isEditing = false
+    private var listFrameBeforeEditing: NSRect?
 
     var onError: ((String) -> Void)?
 
@@ -37,40 +42,72 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
 
     func show() {
         if !panel.isVisible {
-            restorePosition()
+            if !isEditing {
+                restorePosition()
+            }
         }
         panel.makeKeyAndOrderFront(nil)
     }
 
     func showEditor(prefill: String? = nil) {
         show()
-        let editor = editorWindow ?? makeEditorWindow()
-        editorWindow = editor
-        NSApp.activate(ignoringOtherApps: true)
+        if !isEditing {
+            listFrameBeforeEditing = panel.frame
+            isEditing = true
+            titleLabel.stringValue = "拆分内容"
+            editButton.title = "完成"
+            listScrollView.isHidden = true
+            editorView.isHidden = false
+            resizeForEditing()
+        }
         if let prefill {
             editorTextView?.string = prefill
             editorTextView?.setSelectedRange(NSRange(location: 0, length: 0))
         }
         refreshEditorButtons()
-        if !editor.isVisible {
-            let boardFrame = panel.frame
-            let proposed = NSPoint(x: boardFrame.minX - editor.frame.width - 12, y: boardFrame.maxY - editor.frame.height)
-            let screen = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? boardFrame
-            let x = min(max(proposed.x, screen.minX + 12), screen.maxX - editor.frame.width - 12)
-            let y = min(max(proposed.y, screen.minY + 12), screen.maxY - editor.frame.height - 12)
-            editor.setFrameOrigin(NSPoint(x: x, y: y))
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(editorTextView)
+    }
+
+    private func resizeForEditing() {
+        let previous = panel.frame
+        let width = max(previous.width, 500)
+        let height = max(previous.height, 430)
+        let screen = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? previous
+        let x = min(max(previous.maxX - width, screen.minX + 12), screen.maxX - width - 12)
+        let y = min(max(previous.maxY - height, screen.minY + 12), screen.maxY - height - 12)
+        panel.minSize = NSSize(width: 380, height: 280)
+        panel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
+    }
+
+    private func finishEditing() {
+        guard isEditing else { return }
+        let current = panel.frame
+        isEditing = false
+        titleLabel.stringValue = "精选"
+        editButton.title = "添加 / 拆分"
+        panel.makeFirstResponder(nil)
+        editorView.isHidden = true
+        listScrollView.isHidden = false
+        panel.minSize = NSSize(width: 285, height: 180)
+        if let saved = listFrameBeforeEditing {
+            let screen = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? current
+            let x = min(max(current.maxX - saved.width, screen.minX + 12), screen.maxX - saved.width - 12)
+            let y = min(max(current.maxY - saved.height, screen.minY + 12), screen.maxY - saved.height - 12)
+            panel.setFrame(NSRect(x: x, y: y, width: saved.width, height: saved.height), display: true)
         }
-        editor.makeKeyAndOrderFront(nil)
-        editor.makeFirstResponder(editorTextView)
+        listFrameBeforeEditing = nil
+        UserDefaults.standard.set(NSStringFromRect(panel.frame), forKey: Self.frameKey)
     }
 
     func windowDidMove(_ notification: Notification) {
-        guard (notification.object as? NSWindow) === panel, panel.isVisible else { return }
+        guard (notification.object as? NSWindow) === panel, panel.isVisible, !isEditing else { return }
         UserDefaults.standard.set(NSStringFromRect(panel.frame), forKey: Self.frameKey)
     }
 
     func windowDidResize(_ notification: Notification) {
-        guard (notification.object as? NSWindow) === panel, panel.isVisible else { return }
+        guard (notification.object as? NSWindow) === panel, panel.isVisible, !isEditing else { return }
         UserDefaults.standard.set(NSStringFromRect(panel.frame), forKey: Self.frameKey)
     }
 
@@ -97,35 +134,39 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         root.state = .active
         panel.contentView = root
 
-        let titleLabel = NSTextField(labelWithString: "精选")
         titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         countLabel.textColor = .secondaryLabelColor
         countLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let editButton = NSButton(title: "添加 / 拆分", target: self, action: #selector(openEditor))
+        editButton.title = "添加 / 拆分"
         editButton.bezelStyle = .rounded
         editButton.controlSize = .small
+        editButton.target = self
+        editButton.action = #selector(openEditor)
         editButton.toolTip = "手动输入，或选取长文本中的片段"
         editButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let scrollView = NSScrollView()
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.borderType = .noBorder
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        listScrollView.drawsBackground = false
+        listScrollView.hasVerticalScroller = true
+        listScrollView.borderType = .noBorder
+        listScrollView.translatesAutoresizingMaskIntoConstraints = false
 
         rowStack.orientation = .vertical
         rowStack.spacing = 7
         rowStack.alignment = .leading
         rowStack.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.documentView = rowStack
+        listScrollView.documentView = rowStack
+        editorView.translatesAutoresizingMaskIntoConstraints = false
+        editorView.isHidden = true
+        configureEditorView()
 
         root.addSubview(titleLabel)
         root.addSubview(countLabel)
         root.addSubview(editButton)
-        root.addSubview(scrollView)
+        root.addSubview(listScrollView)
+        root.addSubview(editorView)
 
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: root.topAnchor, constant: 14),
@@ -136,15 +177,19 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
             editButton.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
             editButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
 
-            scrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
-            scrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 9),
-            scrollView.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -9),
-            scrollView.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -9),
+            listScrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
+            listScrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 9),
+            listScrollView.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -9),
+            listScrollView.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -9),
+            editorView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
+            editorView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 9),
+            editorView.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -9),
+            editorView.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -9),
 
-            rowStack.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
-            rowStack.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
-            rowStack.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
-            rowStack.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor)
+            rowStack.leadingAnchor.constraint(equalTo: listScrollView.contentView.leadingAnchor),
+            rowStack.trailingAnchor.constraint(equalTo: listScrollView.contentView.trailingAnchor),
+            rowStack.topAnchor.constraint(equalTo: listScrollView.contentView.topAnchor),
+            rowStack.widthAnchor.constraint(equalTo: listScrollView.contentView.widthAnchor)
         ])
     }
 
@@ -268,28 +313,14 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
     }
 
     @objc private func openEditor() {
-        showEditor()
+        if isEditing {
+            finishEditing()
+        } else {
+            showEditor()
+        }
     }
 
-    private func makeEditorWindow() -> NSPanel {
-        let editor = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 380),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        editor.title = "添加与拆分内容"
-        editor.isReleasedWhenClosed = false
-        editor.level = .floating
-        editor.hidesOnDeactivate = false
-        editor.minSize = NSSize(width: 380, height: 260)
-
-        let root = NSVisualEffectView()
-        root.material = .popover
-        root.blendingMode = .behindWindow
-        root.state = .active
-        editor.contentView = root
-
+    private func configureEditorView() {
         let instruction = NSTextField(labelWithString: "粘贴或输入内容，选中一段后加入精选面板")
         instruction.font = .systemFont(ofSize: 13, weight: .medium)
         instruction.translatesAutoresizingMaskIntoConstraints = false
@@ -322,27 +353,26 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         wholeButton.translatesAutoresizingMaskIntoConstraints = false
         addWholeButton = wholeButton
 
-        root.addSubview(instruction)
-        root.addSubview(scrollView)
-        root.addSubview(selectionButton)
-        root.addSubview(wholeButton)
+        editorView.addSubview(instruction)
+        editorView.addSubview(scrollView)
+        editorView.addSubview(selectionButton)
+        editorView.addSubview(wholeButton)
 
         NSLayoutConstraint.activate([
-            instruction.topAnchor.constraint(equalTo: root.topAnchor, constant: 16),
-            instruction.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 18),
-            instruction.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -18),
+            instruction.topAnchor.constraint(equalTo: editorView.topAnchor, constant: 4),
+            instruction.leadingAnchor.constraint(equalTo: editorView.leadingAnchor, constant: 7),
+            instruction.trailingAnchor.constraint(lessThanOrEqualTo: editorView.trailingAnchor, constant: -7),
 
             scrollView.topAnchor.constraint(equalTo: instruction.bottomAnchor, constant: 12),
-            scrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
-            scrollView.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
+            scrollView.leadingAnchor.constraint(equalTo: editorView.leadingAnchor, constant: 5),
+            scrollView.trailingAnchor.constraint(equalTo: editorView.trailingAnchor, constant: -5),
             scrollView.bottomAnchor.constraint(equalTo: selectionButton.topAnchor, constant: -12),
 
-            selectionButton.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
-            selectionButton.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -14),
+            selectionButton.trailingAnchor.constraint(equalTo: editorView.trailingAnchor, constant: -5),
+            selectionButton.bottomAnchor.constraint(equalTo: editorView.bottomAnchor, constant: -5),
             wholeButton.trailingAnchor.constraint(equalTo: selectionButton.leadingAnchor, constant: -8),
             wholeButton.centerYAnchor.constraint(equalTo: selectionButton.centerYAnchor)
         ])
-        return editor
     }
 
     private func refreshEditorButtons() {
