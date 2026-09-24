@@ -13,6 +13,57 @@ private final class BorderlessSnippetPanel: NSPanel {
     }
 }
 
+/// 拖动边角时使用对侧边作为锚点，文字和图片始终等比缩放。
+struct SnippetResizeGesture {
+    let initialFrame: NSRect
+    let initialPointer: NSPoint
+    let initialZoom: CGFloat
+    let horizontalEdge: Int  // -1 左，1 右，0 未拖动
+    let verticalEdge: Int    // -1 下，1 上，0 未拖动
+}
+
+enum SnippetResizeGeometry {
+    static func zoom(for gesture: SnippetResizeGesture, pointer: NSPoint) -> CGFloat {
+        let horizontalRatio = gesture.horizontalEdge == 0 ? 1 :
+            (gesture.initialFrame.width
+             + CGFloat(gesture.horizontalEdge) * (pointer.x - gesture.initialPointer.x))
+            / gesture.initialFrame.width
+        let verticalRatio = gesture.verticalEdge == 0 ? 1 :
+            (gesture.initialFrame.height
+             + CGFloat(gesture.verticalEdge) * (pointer.y - gesture.initialPointer.y))
+            / gesture.initialFrame.height
+        let ratio = abs(horizontalRatio - 1) >= abs(verticalRatio - 1)
+            ? horizontalRatio : verticalRatio
+        return min(3, max(0.45, gesture.initialZoom * ratio))
+    }
+
+    static func frame(
+        from gesture: SnippetResizeGesture,
+        size: NSSize,
+        in screen: NSRect
+    ) -> NSRect {
+        let initial = gesture.initialFrame
+        let x: CGFloat
+        switch gesture.horizontalEdge {
+        case -1: x = initial.maxX - size.width
+        case 1: x = initial.minX
+        default: x = initial.midX - size.width / 2
+        }
+        let y: CGFloat
+        switch gesture.verticalEdge {
+        case -1: y = initial.maxY - size.height
+        case 1: y = initial.minY
+        default: y = initial.midY - size.height / 2
+        }
+        return NSRect(
+            x: min(max(x, screen.minX + 8), screen.maxX - size.width - 8),
+            y: min(max(y, screen.minY + 8), screen.maxY - size.height - 8),
+            width: size.width,
+            height: size.height
+        )
+    }
+}
+
 /// 内容本身就是贴出的画面；悬浮窗口没有系统标题栏、描边或常驻工具栏。
 private final class SnippetCanvasView: NSView {
     let text: String
@@ -22,9 +73,11 @@ private final class SnippetCanvasView: NSView {
     }
     var onHoverChange: ((Bool) -> Void)?
     var onZoomStep: ((Bool) -> Void)?
+    var onResize: ((SnippetResizeGesture, NSPoint) -> Void)?
     var onContextMenu: ((NSPoint) -> Void)?
     private var trackingAreaRef: NSTrackingArea?
     private var wheelRemainder: CGFloat = 0
+    private var resizeGesture: SnippetResizeGesture?
 
     init(text: String, image: NSImage?) {
         self.text = text
@@ -69,7 +122,7 @@ private final class SnippetCanvasView: NSView {
         if let trackingAreaRef { removeTrackingArea(trackingAreaRef) }
         let area = NSTrackingArea(
             rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
             owner: self,
             userInfo: nil
         )
@@ -79,14 +132,45 @@ private final class SnippetCanvasView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         onHoverChange?(true)
+        updateCursor(at: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseExited(with event: NSEvent) {
         onHoverChange?(false)
+        NSCursor.arrow.set()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateCursor(at: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let edges = resizeEdges(at: point)
+        if (edges.horizontal != 0 || edges.vertical != 0), let window {
+            resizeGesture = SnippetResizeGesture(
+                initialFrame: window.frame,
+                initialPointer: NSEvent.mouseLocation,
+                initialZoom: zoom,
+                horizontalEdge: edges.horizontal,
+                verticalEdge: edges.vertical
+            )
+            return
+        }
         window?.performDrag(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        if let resizeGesture {
+            onResize?(resizeGesture, NSEvent.mouseLocation)
+        } else {
+            super.mouseDragged(with: event)
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        resizeGesture = nil
+        updateCursor(at: convert(event.locationInWindow, from: nil))
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -99,6 +183,26 @@ private final class SnippetCanvasView: NSView {
         guard abs(wheelRemainder) >= threshold else { return }
         onZoomStep?(wheelRemainder > 0)
         wheelRemainder = 0
+    }
+
+    private func resizeEdges(at point: NSPoint) -> (horizontal: Int, vertical: Int) {
+        let edge: CGFloat = 13
+        let horizontal = point.x <= edge ? -1 : (point.x >= bounds.maxX - edge ? 1 : 0)
+        let vertical = point.y <= edge ? -1 : (point.y >= bounds.maxY - edge ? 1 : 0)
+        return (horizontal, vertical)
+    }
+
+    private func updateCursor(at point: NSPoint) {
+        let edges = resizeEdges(at: point)
+        if edges.horizontal != 0 && edges.vertical != 0 {
+            NSCursor.crosshair.set()
+        } else if edges.horizontal != 0 {
+            NSCursor.resizeLeftRight.set()
+        } else if edges.vertical != 0 {
+            NSCursor.resizeUpDown.set()
+        } else {
+            NSCursor.arrow.set()
+        }
     }
 }
 
@@ -155,6 +259,7 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hidesOnDeactivate = false
+        panel.acceptsMouseMovedEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.delegate = self
         panel.contentView = canvas
@@ -162,7 +267,7 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
         menuButton.title = "操作"
         menuButton.bezelStyle = .rounded
         menuButton.controlSize = .small
-        menuButton.toolTip = "放大、缩小、复制或移除"
+        menuButton.toolTip = "复制或移除"
         menuButton.target = self
         menuButton.action = #selector(showActionsFromButton)
         menuButton.isHidden = true
@@ -179,6 +284,9 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
         canvas.onZoomStep = { [weak self] zoomIn in
             self?.adjustZoom(zoomIn: zoomIn)
         }
+        canvas.onResize = { [weak self] gesture, pointer in
+            self?.resize(using: gesture, pointer: pointer)
+        }
         canvas.onContextMenu = { [weak self] point in
             self?.showActions(at: point)
         }
@@ -193,20 +301,11 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
             copyItem()
             return true
         }
-        switch key {
-        case "+", "=":
-            adjustZoom(zoomIn: true)
+        if Int(event.keyCode) == kVK_Escape {
+            removeSnippet()
             return true
-        case "-":
-            adjustZoom(zoomIn: false)
-            return true
-        default:
-            if Int(event.keyCode) == kVK_Escape {
-                removeSnippet()
-                return true
-            }
-            return false
         }
+        return false
     }
 
     @objc private func showActionsFromButton() {
@@ -216,8 +315,6 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
     private func showActions(at point: NSPoint) {
         let menu = NSMenu()
         for (title, action) in [
-            ("放大", #selector(zoomIn)),
-            ("缩小", #selector(zoomOut)),
             ("复制原内容", #selector(copyItem)),
             ("移除贴出", #selector(removeSnippet))
         ] {
@@ -228,29 +325,47 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
         menu.popUp(positioning: nil, at: point, in: canvas)
     }
 
-    @objc private func zoomIn() {
-        adjustZoom(zoomIn: true)
-    }
-
-    @objc private func zoomOut() {
-        adjustZoom(zoomIn: false)
-    }
-
     private func adjustZoom(zoomIn: Bool) {
-        let next = min(3, max(0.45, zoom * (zoomIn ? 1.15 : 1 / 1.15)))
+        let screen = visibleScreen()
+        let next = allowedZoom(zoom * (zoomIn ? 1.15 : 1 / 1.15), in: screen)
         guard abs(next - zoom) > 0.001 else { return }
-        zoom = next
-        canvas.zoom = next
-        let screen = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
-            ?? NSRect(x: 0, y: 0, width: 1100, height: 750)
-        let size = NSSize(
-            width: min(max(60, baseSize.width * next), screen.width * 0.9),
-            height: min(max(42, baseSize.height * next), screen.height * 0.9)
-        )
+        let size = scaledSize(at: next)
         let current = panel.frame
         let x = min(max(current.midX - size.width / 2, screen.minX + 8), screen.maxX - size.width - 8)
         let y = min(max(current.midY - size.height / 2, screen.minY + 8), screen.maxY - size.height - 8)
-        panel.setFrame(NSRect(origin: NSPoint(x: x, y: y), size: size), display: true)
+        applyZoom(next, frame: NSRect(origin: NSPoint(x: x, y: y), size: size))
+    }
+
+    private func resize(using gesture: SnippetResizeGesture, pointer: NSPoint) {
+        let screen = visibleScreen()
+        let next = allowedZoom(SnippetResizeGeometry.zoom(for: gesture, pointer: pointer), in: screen)
+        let frame = SnippetResizeGeometry.frame(
+            from: gesture,
+            size: scaledSize(at: next),
+            in: screen
+        )
+        applyZoom(next, frame: frame)
+    }
+
+    private func applyZoom(_ value: CGFloat, frame: NSRect) {
+        zoom = value
+        canvas.zoom = value
+        panel.setFrame(frame, display: true)
+    }
+
+    private func scaledSize(at value: CGFloat) -> NSSize {
+        NSSize(width: baseSize.width * value, height: baseSize.height * value)
+    }
+
+    private func visibleScreen() -> NSRect {
+        panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1100, height: 750)
+    }
+
+    private func allowedZoom(_ requested: CGFloat, in screen: NSRect) -> CGFloat {
+        let lower = max(0.45, 60 / baseSize.width, 42 / baseSize.height)
+        let upper = min(3, screen.width * 0.9 / baseSize.width, screen.height * 0.9 / baseSize.height)
+        return min(max(requested, lower), max(lower, upper))
     }
 
     @objc private func copyItem() {

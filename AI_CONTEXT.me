@@ -39,7 +39,8 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 - `Sources/CuratedClipboardStore.swift`：精选条目的独立持久化与图片副本；普通历史淘汰不会清理精选图片。
 - `Sources/CuratedTextSelection.swift`：按 NSTextView 的 UTF-16 选区精确提取用户划定的文本片段。
 - `Sources/CuratedClipboardPanelController.swift`：仅展示精选条目的常驻小面板、逐条复制/移除，以及同一窗口内长文本手动选择片段的编辑状态；编辑时不再创建第二个 NSPanel。
-- `Sources/StandaloneSnippetController.swift`：无标题栏、无描边的文字或图片贴出浮窗；拖动定位、滚轮/键盘缩放、悬停/右键菜单复制原内容或移除，移除不删除历史。
+- `Sources/StandaloneSnippetController.swift`：无标题栏、无描边的文字或图片贴出浮窗；拖内容中间移动，拖边角或滚轮等比缩放，悬停/右键菜单只复制原内容或移除，移除不删除历史。
+- `Tests/StandaloneSnippetResizeTests.swift`、`test_standalone_snippet.sh`：验证边缘/角落拖动缩放时的比例、对侧锚点与最小尺寸。
 - `Tests/CuratedClipboardStoreTests.swift`、`test_curated_clipboard.sh`：精选内容保存、单条复制、UTF-16 选区与历史图片独立保存的测试。
 - `build.sh`：默认以 `TARGET_ARCH=arm64` 构建 thin `build/Y-Clip.app`，也支持白名单内的 `x86_64`，可通过 `BUILD_DIR` / `APP_PATH` 隔离输出；同时编译 vendored 的 Setting 与 Permission Swift 框架。
 - `make_dmg.sh`：共享 DMG 框架的薄配置入口；支持 `APP_NAME_OVERRIDE`、`APP_PATH_OVERRIDE`、`VOLUME_NAME_OVERRIDE`、`DMG_OUTPUT_PATH_OVERRIDE`（兼容 `OUTPUT_PATH_OVERRIDE`）。
