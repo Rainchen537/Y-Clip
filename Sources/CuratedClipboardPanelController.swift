@@ -29,6 +29,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
     private var addWholeButton: NSButton?
     private var isEditing = false
     private var isSelectingMerge = false
+    private var displayedSplitIDs: [UUID]?
     private var selectedMergeIDs: Set<UUID> = []
     private var editorPurpose: EditorPurpose = .add
     private var listFrameBeforeEditing: NSRect?
@@ -131,14 +132,14 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         let current = panel.frame
         isEditing = false
         editorPurpose = .add
-        titleLabel.stringValue = "复制清单"
+        titleLabel.stringValue = displayedSplitIDs == nil ? "复制清单" : "分行复制"
         editButton.title = "添加"
-        editButton.isHidden = false
+        editButton.isHidden = displayedSplitIDs != nil
         mergeButton.title = "合并"
         panel.makeFirstResponder(nil)
         editorView.isHidden = true
         listScrollView.isHidden = false
-        mergeButton.isHidden = false
+        mergeButton.isHidden = displayedSplitIDs != nil
         panel.minSize = NSSize(width: 285, height: 180)
         if let saved = listFrameBeforeEditing {
             let screen = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? current
@@ -150,6 +151,10 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         UserDefaults.standard.set(NSStringFromRect(panel.frame), forKey: Self.frameKey)
         updateHeaderCount()
         renderRows()
+        if displayedSplitIDs != nil {
+            listScrollView.contentView.scroll(to: .zero)
+            listScrollView.reflectScrolledClipView(listScrollView.contentView)
+        }
     }
 
     func windowDidMove(_ notification: Notification) {
@@ -274,8 +279,18 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
             view.removeFromSuperview()
         }
 
-        if store.items.isEmpty {
-            let empty = NSTextField(labelWithString: "从历史加入，或点右上角添加内容")
+        let visibleItems: [ClipboardItem]
+        if let displayedSplitIDs {
+            let ids = Set(displayedSplitIDs)
+            visibleItems = store.items.filter { ids.contains($0.id) }
+        } else {
+            visibleItems = store.items
+        }
+
+        if visibleItems.isEmpty {
+            let empty = NSTextField(labelWithString: displayedSplitIDs == nil
+                ? "从历史加入，或点右上角添加内容"
+                : "拆分行已移除")
             empty.font = .systemFont(ofSize: 12)
             empty.textColor = .secondaryLabelColor
             empty.alignment = .center
@@ -285,7 +300,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
             return
         }
 
-        for item in store.items {
+        for item in visibleItems {
             let row = isSelectingMerge ? makeMergeSelectionRow(for: item) : makeRow(for: item)
             rowStack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: rowStack.widthAnchor).isActive = true
@@ -304,6 +319,9 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
             }
         } else if isSelectingMerge {
             countLabel.stringValue = "已选 \(selectedMergeIDs.count) 条"
+        } else if let displayedSplitIDs {
+            let ids = Set(displayedSplitIDs)
+            countLabel.stringValue = "\(store.items.filter { ids.contains($0.id) }.count) 行"
         } else {
             countLabel.stringValue = "\(store.items.count) 条"
         }
@@ -413,7 +431,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
             constraints.append(copyButton.leadingAnchor.constraint(equalTo: preview.trailingAnchor, constant: 8))
         } else {
             constraints.append(preview.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 12))
-            if item.text != nil {
+            if item.text != nil && displayedSplitIDs == nil {
                 let splitButton = NSButton(title: "拆分", target: self, action: #selector(splitItem(_:)))
                 splitButton.bezelStyle = .rounded
                 splitButton.controlSize = .small
@@ -455,6 +473,10 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         guard let id = sender.identifier.flatMap({ UUID(uuidString: $0.rawValue) }) else { return }
         do {
             try store.remove(id)
+            if let displayedSplitIDs,
+               !store.items.contains(where: { displayedSplitIDs.contains($0.id) }) {
+                goBack()
+            }
         } catch {
             onError?(error.localizedDescription)
         }
@@ -510,6 +532,12 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
             }
         } else if isSelectingMerge {
             stopMergeSelection()
+        } else if displayedSplitIDs != nil {
+            displayedSplitIDs = nil
+            titleLabel.stringValue = "复制清单"
+            editButton.isHidden = false
+            mergeButton.isHidden = false
+            renderRows()
         } else {
             let shouldReturnToHistory = returnToHistory
             returnToHistory = false
@@ -605,7 +633,8 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
                 textView.string = ""
                 refreshEditorButtons()
             case let .split(id):
-                try store.splitText(id, into: CuratedTextSegments.lines(in: textView.string))
+                let newRows = try store.splitText(id, into: CuratedTextSegments.lines(in: textView.string))
+                displayedSplitIDs = newRows.map(\.id)
                 finishEditing()
             case let .merge(ids):
                 try store.mergeText(ids, into: textView.string)
