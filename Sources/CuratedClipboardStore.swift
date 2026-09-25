@@ -12,7 +12,7 @@ enum CuratedClipboardError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .emptyText:
-            return "请先选中或输入要添加的内容。"
+            return "请先输入要保存的文字内容。"
         case .missingImage:
             return "原图片已不在剪贴板历史中，无法加入复制清单。"
         case .itemUnavailable:
@@ -20,7 +20,7 @@ enum CuratedClipboardError: LocalizedError {
         case .textOnly:
             return "目前只能拆分或合并文字内容。"
         case .requiresTwoSegments:
-            return "请至少加入两段内容，再保存拆分。"
+            return "请至少用回车分成两行，再保存拆分。"
         case .requiresTwoItems:
             return "请至少选中两条文字，再合并。"
         }

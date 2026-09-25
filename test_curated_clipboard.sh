@@ -11,7 +11,7 @@ mkdir -p "$TEST_BUILD_DIR"
 xcrun swiftc \
   -swift-version 5 \
   "$ROOT_DIR/Sources/Models.swift" \
-  "$ROOT_DIR/Sources/CuratedTextSelection.swift" \
+  "$ROOT_DIR/Sources/CuratedTextSegments.swift" \
   "$ROOT_DIR/Sources/CuratedClipboardStore.swift" \
   "$ROOT_DIR/Tests/CuratedClipboardStoreTests.swift" \
   -o "$TEST_BUILD_DIR/CuratedClipboardStoreTests"

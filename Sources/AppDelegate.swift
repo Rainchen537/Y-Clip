@@ -80,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 panelController.dismissForSettingsTransition()
             }
             DispatchQueue.main.async { [weak self] in
-                self?.openCuratedPanel()
+                self?.ensureCuratedPanel()?.show(returnToHistory: true)
             }
         }
         panelController.onAddToCurated = { [weak self] item in
@@ -210,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openCuratedPanel() {
-        ensureCuratedPanel()?.show()
+        ensureCuratedPanel()?.show(returnToHistory: false)
     }
 
     private func toggleCuratedPanel() {
@@ -226,6 +226,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let controller = CuratedClipboardPanelController(store: store)
             controller.onError = { [weak self] message in
                 self?.showAlert(title: "复制清单", message: message)
+            }
+            controller.onBackToHistory = { [weak self] in
+                guard let self else { return }
+                self.showClipboardHistory(
+                    pinned: self.panelController.isPinned,
+                    preserveFocusContext: true
+                )
             }
             curatedStore = store
             curatedPanelController = controller
@@ -245,7 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 panelController.dismissForSettingsTransition()
             }
             DispatchQueue.main.async {
-                controller.show()
+                controller.show(returnToHistory: true)
             }
         } catch {
             showAlert(title: "加入复制清单失败", message: error.localizedDescription)
@@ -492,8 +499,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showClipboardHistory(pinned: Bool) {
-        focusContext = FocusContextReader.current()
+    private func showClipboardHistory(pinned: Bool, preserveFocusContext: Bool = false) {
+        if !preserveFocusContext {
+            focusContext = FocusContextReader.current()
+        }
         let anchorPoint = usableAnchorPoint(focusContext?.caretPoint)
 
         panelController.show(

@@ -4,7 +4,7 @@ import Foundation
 @main
 struct CuratedClipboardStoreTests {
     static func main() throws {
-        try testManualSelectionAndPersistence()
+        try testManualEntryAndPersistence()
         try testSplitAndMergeExistingRows()
         try testHistoryImageSurvivesHistoryRemoval()
         print("CuratedClipboardStore tests passed")
@@ -40,16 +40,9 @@ struct CuratedClipboardStoreTests {
         expect(reopened.items.compactMap(\.text) == store.items.compactMap(\.text), "拆分和合并结果应持久化")
     }
 
-    private static func testManualSelectionAndPersistence() throws {
-        let text = "姓名：喵🐈\n电话：13800000000\n地址：北京"
-        let source = text as NSString
-        let nameRange = source.range(of: "喵🐈")
-        let phoneRange = source.range(of: "13800000000")
-        expect(CuratedTextSelection.fragment(in: text, range: nameRange) == "喵🐈", "表情后的 UTF-16 选区应准确")
-        expect(CuratedTextSelection.fragment(in: text, range: phoneRange) == "13800000000", "可选择任意边界的电话片段")
-        expect(CuratedTextSelection.fragment(in: text, range: NSRange(location: source.length, length: 2)) == nil, "越界选区应拒绝")
-        expect(CuratedTextSelection.fragment(in: " \n ", range: NSRange(location: 0, length: 3)) == nil, "纯空白不应成为条目")
-        expect(CuratedTextSelection.fragment(in: " A ", range: NSRange(location: 0, length: 3)) == " A ", "应保留用户划定的空格")
+    private static func testManualEntryAndPersistence() throws {
+        expect(CuratedTextSegments.lines(in: "张三\r\n13800000000\n\n 北京 ") == ["张三", "13800000000", " 北京 "], "回车应逐行拆分，跳过空行并保留文字边界")
+        expect(CuratedTextSegments.lines(in: "learntyping2") == ["learntyping2"], "单行内容默认仍是一条")
 
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("y-clip-curated-tests-\(UUID())")
         let pasteboard = NSPasteboard.withUniqueName()
@@ -59,8 +52,8 @@ struct CuratedClipboardStoreTests {
         }
 
         let store = try CuratedClipboardStore(directory: directory, pasteboard: pasteboard)
-        let name = try store.addText(source.substring(with: nameRange))
-        let phone = try store.addText(source.substring(with: phoneRange))
+        let name = try store.addText("喵🐈")
+        let phone = try store.addText("13800000000")
         expect(store.items.map(\.text) == ["喵🐈", "13800000000"], "条目应按用户添加顺序保存")
         expect(store.copyToPasteboard(phone), "电话条目应能独立复制")
         expect(pasteboard.string(forType: .string) == "13800000000", "独立复制不应包含姓名")

@@ -18,28 +18,24 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
     private let rowStack = CuratedRowsStackView()
     private let listScrollView = NSScrollView()
     private let editorView = NSView()
+    private let backButton = NSButton()
     private let titleLabel = NSTextField(labelWithString: "复制清单")
     private let countLabel = NSTextField(labelWithString: "")
     private let editButton = NSButton()
     private let mergeButton = NSButton()
     private let editorInstructionLabel = NSTextField(labelWithString: "")
     private let editorSourceScrollView = NSScrollView()
-    private let draftPreviewScrollView = NSScrollView()
-    private let draftPreviewTextView = NSTextView(frame: .zero)
     private var editorTextView: NSTextView?
-    private var addSelectionButton: NSButton?
     private var addWholeButton: NSButton?
-    private var undoSegmentButton: NSButton?
-    private var sourceBottomDirectConstraint: NSLayoutConstraint?
-    private var sourceBottomToPreviewConstraint: NSLayoutConstraint?
     private var isEditing = false
     private var isSelectingMerge = false
     private var selectedMergeIDs: Set<UUID> = []
     private var editorPurpose: EditorPurpose = .add
-    private var pendingSegments: [String] = []
     private var listFrameBeforeEditing: NSRect?
+    private var returnToHistory = false
 
     var onError: ((String) -> Void)?
+    var onBackToHistory: (() -> Void)?
 
     init(store: CuratedClipboardStore) {
         self.store = store
@@ -57,7 +53,11 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         renderRows()
     }
 
-    func show() {
+    func show(returnToHistory: Bool? = nil) {
+        if let returnToHistory {
+            self.returnToHistory = returnToHistory
+        }
+        backButton.toolTip = self.returnToHistory ? "返回剪贴板历史" : "返回上一页"
         if !panel.isVisible {
             if !isEditing {
                 restorePosition()
@@ -69,15 +69,15 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
     func toggle() {
         if panel.isVisible {
             panel.orderOut(nil)
+            returnToHistory = false
         } else {
-            show()
+            show(returnToHistory: false)
         }
     }
 
     private func beginEditing(_ purpose: EditorPurpose, prefill: String) {
         show()
         editorPurpose = purpose
-        pendingSegments = []
         isSelectingMerge = false
         selectedMergeIDs = []
         if !isEditing {
@@ -87,34 +87,24 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
             editorView.isHidden = false
             resizeForEditing()
         }
+        editButton.isHidden = true
         mergeButton.isHidden = true
         switch purpose {
         case .add:
             titleLabel.stringValue = "添加内容"
             editButton.title = "完成"
             editorInstructionLabel.stringValue = "粘贴或输入内容，先加入清单，再按需拆分"
-            addSelectionButton?.isHidden = true
-            undoSegmentButton?.isHidden = true
             addWholeButton?.title = "加入清单"
-            showDraftPreview(false)
         case .split:
             titleLabel.stringValue = "拆分现有内容"
             editButton.title = "取消"
-            editorInstructionLabel.stringValue = "选中要单独复制的部分，逐段加入下方结果"
-            addSelectionButton?.title = "加入片段"
-            addSelectionButton?.isHidden = false
-            undoSegmentButton?.isHidden = false
+            editorInstructionLabel.stringValue = "每行保存为一条；按回车调整拆分位置"
             addWholeButton?.title = "保存拆分"
-            showDraftPreview(true)
-            updateDraftPreview()
         case .merge:
             titleLabel.stringValue = "合并现有内容"
             editButton.title = "取消"
             editorInstructionLabel.stringValue = "编辑合并后的文字，保存后替换所选条目"
-            addSelectionButton?.isHidden = true
-            undoSegmentButton?.isHidden = true
             addWholeButton?.title = "保存合并"
-            showDraftPreview(false)
         }
         editorTextView?.string = prefill
         editorTextView?.setSelectedRange(NSRange(location: 0, length: 0))
@@ -141,9 +131,9 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         let current = panel.frame
         isEditing = false
         editorPurpose = .add
-        pendingSegments = []
         titleLabel.stringValue = "复制清单"
         editButton.title = "添加"
+        editButton.isHidden = false
         mergeButton.title = "合并"
         panel.makeFirstResponder(nil)
         editorView.isHidden = true
@@ -197,6 +187,13 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
 
         titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        backButton.title = "返回"
+        backButton.bezelStyle = .rounded
+        backButton.controlSize = .small
+        backButton.target = self
+        backButton.action = #selector(goBack)
+        backButton.toolTip = "返回上一页"
+        backButton.translatesAutoresizingMaskIntoConstraints = false
         countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         countLabel.textColor = .secondaryLabelColor
         countLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -230,6 +227,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         editorView.isHidden = true
         configureEditorView()
 
+        root.addSubview(backButton)
         root.addSubview(titleLabel)
         root.addSubview(countLabel)
         root.addSubview(editButton)
@@ -239,7 +237,9 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
 
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: root.topAnchor, constant: 14),
-            titleLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
+            backButton.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
+            backButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 8),
             countLabel.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 8),
             countLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             countLabel.trailingAnchor.constraint(lessThanOrEqualTo: mergeButton.leadingAnchor, constant: -8),
@@ -296,7 +296,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         if isEditing {
             switch editorPurpose {
             case .split:
-                countLabel.stringValue = "\(pendingSegments.count) 段"
+                countLabel.stringValue = "\(CuratedTextSegments.lines(in: editorTextView?.string ?? "").count) 行"
             case let .merge(ids):
                 countLabel.stringValue = "\(ids.count) 条"
             case .add:
@@ -488,28 +488,55 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
             )
         } else {
             guard store.items.filter({ $0.text != nil }).count >= 2 else { return }
-            isSelectingMerge = true
-            selectedMergeIDs = []
-            titleLabel.stringValue = "选择文字"
-            editButton.title = "取消"
-            mergeButton.title = "下一步"
-            renderRows()
+            startMergeSelection()
         }
     }
 
     @objc private func openEditor() {
+        beginEditing(.add, prefill: "")
+    }
+
+    @objc private func goBack() {
         if isEditing {
+            let selected: [UUID]?
+            if case let .merge(ids) = editorPurpose {
+                selected = ids
+            } else {
+                selected = nil
+            }
             finishEditing()
+            if let selected {
+                startMergeSelection(restoring: Set(selected))
+            }
         } else if isSelectingMerge {
-            isSelectingMerge = false
-            selectedMergeIDs = []
-            titleLabel.stringValue = "复制清单"
-            editButton.title = "添加"
-            mergeButton.title = "合并"
-            renderRows()
+            stopMergeSelection()
         } else {
-            beginEditing(.add, prefill: "")
+            let shouldReturnToHistory = returnToHistory
+            returnToHistory = false
+            panel.orderOut(nil)
+            if shouldReturnToHistory {
+                onBackToHistory?()
+            }
         }
+    }
+
+    private func startMergeSelection(restoring selected: Set<UUID> = []) {
+        isSelectingMerge = true
+        selectedMergeIDs = selected
+        titleLabel.stringValue = "选择文字"
+        editButton.isHidden = true
+        mergeButton.title = "下一步"
+        renderRows()
+    }
+
+    private func stopMergeSelection() {
+        isSelectingMerge = false
+        selectedMergeIDs = []
+        titleLabel.stringValue = "复制清单"
+        editButton.title = "添加"
+        editButton.isHidden = false
+        mergeButton.title = "合并"
+        renderRows()
     }
 
     private func configureEditorView() {
@@ -533,52 +560,15 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         editorSourceScrollView.documentView = textView
         editorTextView = textView
 
-        draftPreviewScrollView.hasVerticalScroller = true
-        draftPreviewScrollView.borderType = .bezelBorder
-        draftPreviewScrollView.translatesAutoresizingMaskIntoConstraints = false
-        draftPreviewScrollView.isHidden = true
-        draftPreviewTextView.frame = NSRect(x: 0, y: 0, width: 460, height: 90)
-        draftPreviewTextView.isEditable = false
-        draftPreviewTextView.isSelectable = false
-        draftPreviewTextView.drawsBackground = false
-        draftPreviewTextView.font = .systemFont(ofSize: 12)
-        draftPreviewTextView.textColor = .secondaryLabelColor
-        draftPreviewTextView.isVerticallyResizable = true
-        draftPreviewTextView.autoresizingMask = [.width]
-        draftPreviewTextView.textContainer?.widthTracksTextView = true
-        draftPreviewTextView.textContainer?.containerSize.height = .greatestFiniteMagnitude
-        draftPreviewScrollView.documentView = draftPreviewTextView
-
-        let selectionButton = NSButton(title: "加入片段", target: self, action: #selector(addSelectedText))
-        selectionButton.bezelStyle = .rounded
-        selectionButton.translatesAutoresizingMaskIntoConstraints = false
-        selectionButton.isHidden = true
-        addSelectionButton = selectionButton
-
         let wholeButton = NSButton(title: "加入清单", target: self, action: #selector(commitEditor))
         wholeButton.bezelStyle = .rounded
         wholeButton.translatesAutoresizingMaskIntoConstraints = false
         addWholeButton = wholeButton
 
-        let undoButton = NSButton(title: "撤销上一段", target: self, action: #selector(undoSegment))
-        undoButton.bezelStyle = .rounded
-        undoButton.translatesAutoresizingMaskIntoConstraints = false
-        undoButton.isHidden = true
-        undoSegmentButton = undoButton
-
         editorView.addSubview(editorInstructionLabel)
         editorView.addSubview(editorSourceScrollView)
-        editorView.addSubview(draftPreviewScrollView)
-        editorView.addSubview(undoButton)
-        editorView.addSubview(selectionButton)
         editorView.addSubview(wholeButton)
 
-        sourceBottomDirectConstraint = editorSourceScrollView.bottomAnchor.constraint(
-            equalTo: wholeButton.topAnchor, constant: -12
-        )
-        sourceBottomToPreviewConstraint = editorSourceScrollView.bottomAnchor.constraint(
-            equalTo: draftPreviewScrollView.topAnchor, constant: -8
-        )
         NSLayoutConstraint.activate([
             editorInstructionLabel.topAnchor.constraint(equalTo: editorView.topAnchor, constant: 4),
             editorInstructionLabel.leadingAnchor.constraint(equalTo: editorView.leadingAnchor, constant: 7),
@@ -587,20 +577,11 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
             editorSourceScrollView.topAnchor.constraint(equalTo: editorInstructionLabel.bottomAnchor, constant: 12),
             editorSourceScrollView.leadingAnchor.constraint(equalTo: editorView.leadingAnchor, constant: 5),
             editorSourceScrollView.trailingAnchor.constraint(equalTo: editorView.trailingAnchor, constant: -5),
-
-            draftPreviewScrollView.leadingAnchor.constraint(equalTo: editorView.leadingAnchor, constant: 5),
-            draftPreviewScrollView.trailingAnchor.constraint(equalTo: editorView.trailingAnchor, constant: -5),
-            draftPreviewScrollView.bottomAnchor.constraint(equalTo: wholeButton.topAnchor, constant: -12),
-            draftPreviewScrollView.heightAnchor.constraint(equalToConstant: 90),
+            editorSourceScrollView.bottomAnchor.constraint(equalTo: wholeButton.topAnchor, constant: -12),
 
             wholeButton.trailingAnchor.constraint(equalTo: editorView.trailingAnchor, constant: -5),
-            wholeButton.bottomAnchor.constraint(equalTo: editorView.bottomAnchor, constant: -5),
-            selectionButton.trailingAnchor.constraint(equalTo: wholeButton.leadingAnchor, constant: -8),
-            selectionButton.centerYAnchor.constraint(equalTo: wholeButton.centerYAnchor),
-            undoButton.trailingAnchor.constraint(equalTo: selectionButton.leadingAnchor, constant: -8),
-            undoButton.centerYAnchor.constraint(equalTo: wholeButton.centerYAnchor)
+            wholeButton.bottomAnchor.constraint(equalTo: editorView.bottomAnchor, constant: -5)
         ])
-        sourceBottomDirectConstraint?.isActive = true
     }
 
     private func refreshEditorButtons() {
@@ -610,50 +591,9 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         case .add, .merge:
             addWholeButton?.isEnabled = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .split:
-            addWholeButton?.isEnabled = pendingSegments.count >= 2
-            addSelectionButton?.isEnabled = CuratedTextSelection.fragment(
-                in: text, range: textView.selectedRange()
-            ) != nil
-            undoSegmentButton?.isEnabled = !pendingSegments.isEmpty
+            addWholeButton?.isEnabled = CuratedTextSegments.lines(in: text).count >= 2
+            updateHeaderCount()
         }
-    }
-
-    @objc private func addSelectedText() {
-        guard case .split = editorPurpose else { return }
-        guard let textView = editorTextView else { return }
-        guard let selected = CuratedTextSelection.fragment(
-            in: textView.string,
-            range: textView.selectedRange()
-        ) else {
-            return
-        }
-        pendingSegments.append(selected)
-        updateDraftPreview()
-    }
-
-    @objc private func undoSegment() {
-        guard !pendingSegments.isEmpty else { return }
-        pendingSegments.removeLast()
-        updateDraftPreview()
-    }
-
-    private func showDraftPreview(_ visible: Bool) {
-        sourceBottomDirectConstraint?.isActive = false
-        sourceBottomToPreviewConstraint?.isActive = false
-        draftPreviewScrollView.isHidden = !visible
-        if visible {
-            sourceBottomToPreviewConstraint?.isActive = true
-        } else {
-            sourceBottomDirectConstraint?.isActive = true
-        }
-    }
-
-    private func updateDraftPreview() {
-        draftPreviewTextView.string = pendingSegments.enumerated()
-            .map { index, text in "\(index + 1). \(text.replacingOccurrences(of: "\n", with: " ↵ "))" }
-            .joined(separator: "\n")
-        updateHeaderCount()
-        refreshEditorButtons()
     }
 
     @objc private func commitEditor() {
@@ -665,7 +605,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
                 textView.string = ""
                 refreshEditorButtons()
             case let .split(id):
-                try store.splitText(id, into: pendingSegments)
+                try store.splitText(id, into: CuratedTextSegments.lines(in: textView.string))
                 finishEditing()
             case let .merge(ids):
                 try store.mergeText(ids, into: textView.string)

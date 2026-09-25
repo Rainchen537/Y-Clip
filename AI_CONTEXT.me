@@ -26,7 +26,7 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 
 ## 关键文件
 
-- `Sources/AppDelegate.swift`：应用生命周期、菜单栏入口（包括直接贴出当前内容）、四组全局热键、设置面板连接，以及向共享权限协调器注入 Y-Clip 的 Accessibility 状态与修复动作。
+- `Sources/AppDelegate.swift`：应用生命周期、菜单栏入口（包括直接贴出当前内容）、四组全局热键、复制清单返回历史时保留原输入焦点，以及向共享权限协调器注入 Y-Clip 的 Accessibility 状态与修复动作。
 - `Sources/ClipboardPanelController.swift`：剪贴板历史面板显示、定位、选择和滚动记忆；负责图钉、固定/临时模式切换、拖拽位置持久化以及固定状态下的实时历史刷新。固定面板选择内容时先释放 key window，避免仍可见的浮层截获自动生成的 `Command+V`。
 - `Sources/FocusContext.swift`：从当前前台 App 自身的 Accessibility 树读取焦点元素，固定面板长期显示时也能恢复到正确输入控件，而不是误用浮层自己的 system-wide focused element。
 - `Sources/SettingsWindowController.swift`：独立设置窗口业务控制器，使用 `Y-Framework/Setting` 的统一设置页面框架；权限页诊断当前运行副本，并可切换到验证通过的 `/Applications/Y-Clip.app`。
@@ -38,11 +38,11 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 - `Sources/ClipboardHistoryStore.swift`：剪贴板监听、历史记录、图片落盘。
 - `Sources/CurrentClipboardSnapshot.swift`：单独贴出快捷键按下时直接读取当前剪贴板的文字或图片；不依赖历史轮询，也不更改剪贴板。
 - `Sources/CuratedClipboardStore.swift`：复制清单条目的独立持久化与图片副本；已有文字条目的拆分/合并通过一次原子保存原位替换，普通历史淘汰不会清理清单图片。
-- `Sources/CuratedTextSelection.swift`：按 NSTextView 的 UTF-16 选区精确提取用户划定的文本片段。
-- `Sources/CuratedClipboardPanelController.swift`：仅展示复制清单条目的常驻小面板、逐条复制/移除；同一窗口中可为已有文字条目预览拆分片段、勾选多条并编辑合并结果，取消不会改动存储。
+- `Sources/CuratedTextSegments.swift`：将回车、Windows 换行和旧式回车统一为行边界；每个非空行可保存为一条。
+- `Sources/CuratedClipboardPanelController.swift`：仅展示复制清单条目的常驻小面板、逐条复制/移除；在同一窗口中用回车分行拆分已有文字，或勾选多条并编辑合并结果。左上角返回按编辑、勾选、清单逐层回退；取消不改存储。
 - `Sources/StandaloneSnippetController.swift`：无标题栏、无描边的文字或图片贴出浮窗；拖内容中间移动，拖边角或滚轮等比缩放，悬停/右键菜单只复制原内容或移除，移除不删除历史。
 - `Tests/StandaloneSnippetResizeTests.swift`、`test_standalone_snippet.sh`：验证边缘/角落拖动缩放时的比例、对侧锚点与最小尺寸。
-- `Tests/CuratedClipboardStoreTests.swift`、`test_curated_clipboard.sh`：复制清单保存、已有条目的原位拆分/合并、独立复制、UTF-16 选区与历史图片独立保存的测试。
+- `Tests/CuratedClipboardStoreTests.swift`、`test_curated_clipboard.sh`：复制清单保存、按回车分行的原位拆分/合并、独立复制与历史图片独立保存的测试。
 - `Tests/CurrentClipboardSnapshotTests.swift`、`test_current_clipboard_snapshot.sh`：用独立剪贴板验证当前文字、图片与空内容的贴出选择。
 - `Tests/FeatureHotKeySettingsTests.swift`、`test_feature_hotkeys.sh`：在隔离的 UserDefaults 域验证新快捷键默认值和自定义保存，不修改用户设置。
 - `build.sh`：默认以 `TARGET_ARCH=arm64` 构建 thin `build/Y-Clip.app`，也支持白名单内的 `x86_64`，可通过 `BUILD_DIR` / `APP_PATH` 隔离输出；同时编译 vendored 的 Setting 与 Permission Swift 框架。
