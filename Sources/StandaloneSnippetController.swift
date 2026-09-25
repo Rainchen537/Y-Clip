@@ -14,12 +14,6 @@ private final class BorderlessSnippetPanel: NSPanel {
 }
 
 private final class SnippetSelectableTextView: NSTextView {
-    var onContextMenu: ((NSPoint) -> Void)?
-
-    override func rightMouseDown(with event: NSEvent) {
-        onContextMenu?(superview?.convert(event.locationInWindow, from: nil) ?? .zero)
-    }
-
     override func scrollWheel(with event: NSEvent) {
         superview?.scrollWheel(with: event)
     }
@@ -94,10 +88,8 @@ private final class SnippetCanvasView: NSView {
             needsLayout = true
         }
     }
-    var onHoverChange: ((Bool) -> Void)?
     var onZoomStep: ((Bool) -> Void)?
     var onResize: ((SnippetResizeGesture, NSPoint) -> Void)?
-    var onContextMenu: ((NSPoint) -> Void)?
     private(set) var selectableTextView: SnippetSelectableTextView?
     private var trackingAreaRef: NSTrackingArea?
     private var wheelRemainder: CGFloat = 0
@@ -118,9 +110,6 @@ private final class SnippetCanvasView: NSView {
             textView.textContainerInset = .zero
             textView.textContainer?.lineFragmentPadding = 0
             textView.textContainer?.widthTracksTextView = true
-            textView.onContextMenu = { [weak self] point in
-                self?.onContextMenu?(point)
-            }
             addSubview(textView)
             selectableTextView = textView
         }
@@ -168,12 +157,10 @@ private final class SnippetCanvasView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        onHoverChange?(true)
         updateCursor(at: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseExited(with event: NSEvent) {
-        onHoverChange?(false)
         NSCursor.arrow.set()
     }
 
@@ -208,10 +195,6 @@ private final class SnippetCanvasView: NSView {
     override func mouseUp(with event: NSEvent) {
         resizeGesture = nil
         updateCursor(at: convert(event.locationInWindow, from: nil))
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        onContextMenu?(convert(event.locationInWindow, from: nil))
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -253,7 +236,6 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
     private let baseSize: NSSize
     private let panel: BorderlessSnippetPanel
     private let canvas: SnippetCanvasView
-    private let menuButton = NSButton()
     private var zoom: CGFloat = 1
 
     var onClose: ((UUID) -> Void)?
@@ -301,31 +283,11 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
         panel.delegate = self
         panel.contentView = canvas
 
-        menuButton.title = "操作"
-        menuButton.bezelStyle = .rounded
-        menuButton.controlSize = .small
-        menuButton.toolTip = "复制或移除"
-        menuButton.target = self
-        menuButton.action = #selector(showActionsFromButton)
-        menuButton.isHidden = true
-        menuButton.translatesAutoresizingMaskIntoConstraints = false
-        canvas.addSubview(menuButton)
-        NSLayoutConstraint.activate([
-            menuButton.topAnchor.constraint(equalTo: canvas.topAnchor, constant: 6),
-            menuButton.trailingAnchor.constraint(equalTo: canvas.trailingAnchor, constant: -6)
-        ])
-
-        canvas.onHoverChange = { [weak self] hovering in
-            self?.menuButton.isHidden = !hovering
-        }
         canvas.onZoomStep = { [weak self] zoomIn in
             self?.adjustZoom(zoomIn: zoomIn)
         }
         canvas.onResize = { [weak self] gesture, pointer in
             self?.resize(using: gesture, pointer: pointer)
-        }
-        canvas.onContextMenu = { [weak self] point in
-            self?.showActions(at: point)
         }
         panel.onKeyDown = { [weak self] event in
             self?.handleKey(event) ?? false
@@ -347,32 +309,6 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
             return true
         }
         return false
-    }
-
-    @objc private func showActionsFromButton() {
-        showActions(at: NSPoint(x: menuButton.frame.minX, y: menuButton.frame.minY))
-    }
-
-    private func showActions(at point: NSPoint) {
-        let menu = NSMenu()
-        let hasSelection = (canvas.selectableTextView?.selectedRange().length ?? 0) > 0
-        if hasSelection {
-            let selected = NSMenuItem(title: "复制所选文字", action: #selector(copySelection), keyEquivalent: "c")
-            selected.keyEquivalentModifierMask = .command
-            selected.target = self
-            menu.addItem(selected)
-        }
-        let copy = NSMenuItem(
-            title: "复制原内容", action: #selector(copyItem), keyEquivalent: hasSelection ? "" : "c"
-        )
-        copy.keyEquivalentModifierMask = .command
-        copy.target = self
-        menu.addItem(copy)
-        let remove = NSMenuItem(title: "移除贴出", action: #selector(removeSnippet), keyEquivalent: "\u{8}")
-        remove.keyEquivalentModifierMask = []
-        remove.target = self
-        menu.addItem(remove)
-        menu.popUp(positioning: nil, at: point, in: canvas)
     }
 
     private func adjustZoom(zoomIn: Bool) {
@@ -418,27 +354,16 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
         return min(max(requested, lower), max(lower, upper))
     }
 
-    @objc private func copyItem() {
-        let copied: Bool
+    private func copyItem() {
         switch item.kind {
         case let .text(text):
             pasteboard.clearContents()
-            copied = pasteboard.setString(text, forType: .string)
+            _ = pasteboard.setString(text, forType: .string)
         case .image:
             guard let imageData else { return }
             pasteboard.clearContents()
-            copied = pasteboard.setData(imageData, forType: .png)
+            _ = pasteboard.setData(imageData, forType: .png)
         }
-        if copied {
-            menuButton.title = "已复制"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-                self?.menuButton.title = "操作"
-            }
-        }
-    }
-
-    @objc private func copySelection() {
-        _ = copySelectedText()
     }
 
     @discardableResult
@@ -450,7 +375,7 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
         return pasteboard.setString(selected, forType: .string)
     }
 
-    @objc private func removeSnippet() {
+    private func removeSnippet() {
         panel.close()
     }
 
