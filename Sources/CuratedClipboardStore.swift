@@ -8,6 +8,7 @@ enum CuratedClipboardError: LocalizedError {
     case textOnly
     case requiresTwoSegments
     case requiresTwoItems
+    case nothingToUndo
 
     var errorDescription: String? {
         switch self {
@@ -23,6 +24,8 @@ enum CuratedClipboardError: LocalizedError {
             return "请至少用回车分成两行，再保存拆分。"
         case .requiresTwoItems:
             return "请至少选中两条文字，再合并。"
+        case .nothingToUndo:
+            return "没有可撤销的拆分或合并。"
         }
     }
 }
@@ -35,6 +38,8 @@ final class CuratedClipboardStore {
     private let pasteboard: NSPasteboard
 
     private(set) var items: [ClipboardItem]
+    private var undoItems: [ClipboardItem]?
+    var canUndoLastEdit: Bool { undoItems != nil }
     var onChange: (([ClipboardItem]) -> Void)?
 
     init(
@@ -130,7 +135,7 @@ final class CuratedClipboardStore {
         let replacements = segments.map { ClipboardItem(text: $0) }
         var next = items
         next.replaceSubrange(index...index, with: replacements)
-        try replaceItems(next)
+        try replaceItems(next, undoSnapshot: items)
         return replacements
     }
 
@@ -156,8 +161,13 @@ final class CuratedClipboardStore {
             guard selected.contains(item.id) else { return item }
             return index == firstIndex ? merged : nil
         }
-        try replaceItems(next)
+        try replaceItems(next, undoSnapshot: items)
         return merged
+    }
+
+    func undoLastEdit() throws {
+        guard let undoItems else { throw CuratedClipboardError.nothingToUndo }
+        try replaceItems(undoItems)
     }
 
     func imageURL(for payload: ImagePayload) -> URL? {
@@ -188,11 +198,12 @@ final class CuratedClipboardStore {
         }
     }
 
-    private func replaceItems(_ next: [ClipboardItem]) throws {
+    private func replaceItems(_ next: [ClipboardItem], undoSnapshot: [ClipboardItem]? = nil) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(next)
         try data.write(to: saveURL, options: [.atomic])
         items = next
+        undoItems = undoSnapshot
         onChange?(items)
     }
 

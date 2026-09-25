@@ -6,6 +6,7 @@ struct CuratedClipboardStoreTests {
     static func main() throws {
         try testManualEntryAndPersistence()
         try testSplitAndMergeExistingRows()
+        try testUndoSplitAndMerge()
         try testHistoryImageSurvivesHistoryRemoval()
         print("CuratedClipboardStore tests passed")
     }
@@ -64,6 +65,33 @@ struct CuratedClipboardStoreTests {
         expect(reopened.items.map(\.id) == [phone.id], "移除一条不应改变另一条")
         let afterRemove = try CuratedClipboardStore(directory: directory, pasteboard: pasteboard)
         expect(afterRemove.items.count == 1, "移除后应持久化")
+    }
+
+    private static func testUndoSplitAndMerge() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("y-clip-curated-undo-\(UUID())")
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            pasteboard.releaseGlobally()
+        }
+        let store = try CuratedClipboardStore(directory: directory, pasteboard: pasteboard)
+        let original = try store.addText("姓名：张三\n电话：13800000000")
+        let address = try store.addText("地址：示例路")
+        _ = try store.splitText(original.id, into: ["姓名：张三", "电话：13800000000"])
+        expect(store.canUndoLastEdit, "拆分后应允许撤销")
+        try store.undoLastEdit()
+        expect(store.items.map(\.id) == [original.id, address.id], "撤销拆分应恢复原内容及 ID")
+        expect(!store.canUndoLastEdit, "一次撤销后不应重复撤销")
+
+        _ = try store.mergeText([original.id, address.id], into: "合并结果")
+        expect(store.canUndoLastEdit, "合并后应允许撤销")
+        try store.undoLastEdit()
+        expect(store.items.map(\.id) == [original.id, address.id], "撤销合并应恢复原顺序")
+        expect(store.items[0].text == "姓名：张三\n电话：13800000000", "撤销合并应恢复原文")
+
+        _ = try store.splitText(original.id, into: ["姓名：张三", "电话：13800000000"])
+        _ = try store.addText("新条目")
+        expect(!store.canUndoLastEdit, "后续修改应使旧撤销失效")
     }
 
     private static func testHistoryImageSurvivesHistoryRemoval() throws {

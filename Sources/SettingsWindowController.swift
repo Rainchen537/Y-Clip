@@ -47,6 +47,8 @@ final class SettingsWindowController: NSObject {
         pinnedHotKey: HotKey,
         copyListHotKey: HotKey,
         standaloneHotKey: HotKey,
+        addSelectedHotKey: HotKey,
+        stickSelectedHotKey: HotKey,
         panelMetrics: HistoryPanelMetrics,
         maxHistoryItems: Int,
         autoUpdateEnabled: Bool,
@@ -57,6 +59,8 @@ final class SettingsWindowController: NSObject {
         onPinnedHotKeyChange: @escaping (HotKey) -> Void,
         onCopyListHotKeyChange: @escaping (HotKey) -> Void,
         onStandaloneHotKeyChange: @escaping (HotKey) -> Void,
+        onAddSelectedHotKeyChange: @escaping (HotKey) -> Void,
+        onStickSelectedHotKeyChange: @escaping (HotKey) -> Void,
         onHotKeyRecordingChange: @escaping (Bool) -> Void,
         onPanelMetricsChange: @escaping (HistoryPanelMetrics) -> Void,
         onMaxHistoryItemsChange: @escaping (Int) -> Void,
@@ -72,6 +76,8 @@ final class SettingsWindowController: NSObject {
             pinnedHotKey: pinnedHotKey,
             copyListHotKey: copyListHotKey,
             standaloneHotKey: standaloneHotKey,
+            addSelectedHotKey: addSelectedHotKey,
+            stickSelectedHotKey: stickSelectedHotKey,
             panelMetrics: panelMetrics,
             maxHistoryItems: maxHistoryItems,
             autoUpdateEnabled: autoUpdateEnabled,
@@ -82,6 +88,8 @@ final class SettingsWindowController: NSObject {
             onPinnedHotKeyChange: onPinnedHotKeyChange,
             onCopyListHotKeyChange: onCopyListHotKeyChange,
             onStandaloneHotKeyChange: onStandaloneHotKeyChange,
+            onAddSelectedHotKeyChange: onAddSelectedHotKeyChange,
+            onStickSelectedHotKeyChange: onStickSelectedHotKeyChange,
             onHotKeyRecordingChange: onHotKeyRecordingChange,
             onPanelMetricsChange: onPanelMetricsChange,
             onMaxHistoryItemsChange: onMaxHistoryItemsChange,
@@ -180,6 +188,14 @@ final class SettingsWindowController: NSObject {
 
     func updateStandaloneHotKey(_ hotKey: HotKey) {
         settingsContentController.updateStandaloneHotKey(hotKey)
+    }
+
+    func updateAddSelectedHotKey(_ hotKey: HotKey) {
+        settingsContentController.updateAddSelectedHotKey(hotKey)
+    }
+
+    func updateStickSelectedHotKey(_ hotKey: HotKey) {
+        settingsContentController.updateStickSelectedHotKey(hotKey)
     }
 
     func updatePanelMetrics(_ metrics: HistoryPanelMetrics) {
@@ -595,11 +611,13 @@ final class SettingsWindowController: NSObject {
 }
 
 private final class SettingsContentController {
-    private enum HotKeyRecordingTarget {
+    private enum HotKeyRecordingTarget: Equatable {
         case history
         case pinnedHistory
         case copyList
         case standalone
+        case addSelected
+        case stickSelected
     }
 
     let previewView = ClipboardPreviewView()
@@ -607,6 +625,8 @@ private final class SettingsContentController {
     private let pinnedShortcutButton = NSButton(title: "", target: nil, action: nil)
     private let copyListShortcutButton = NSButton(title: "", target: nil, action: nil)
     private let standaloneShortcutButton = NSButton(title: "", target: nil, action: nil)
+    private let addSelectedShortcutButton = NSButton(title: "", target: nil, action: nil)
+    private let stickSelectedShortcutButton = NSButton(title: "", target: nil, action: nil)
     private let launchAtLoginSwitch = NSSwitch(frame: .zero)
     private let launchAtLoginStatusPill = YSettingPill()
     private let autoUpdateSwitch = NSSwitch(frame: .zero)
@@ -636,6 +656,8 @@ private final class SettingsContentController {
     private var currentPinnedHotKey: HotKey
     private var currentCopyListHotKey: HotKey
     private var currentStandaloneHotKey: HotKey
+    private var currentAddSelectedHotKey: HotKey
+    private var currentStickSelectedHotKey: HotKey
     private var currentPanelMetrics: HistoryPanelMetrics
     private var currentMaxHistoryItems: Int
     private var currentUpdateStatus: SoftwareUpdateStatus = .idle
@@ -645,6 +667,8 @@ private final class SettingsContentController {
     private let onPinnedHotKeyChange: (HotKey) -> Void
     private let onCopyListHotKeyChange: (HotKey) -> Void
     private let onStandaloneHotKeyChange: (HotKey) -> Void
+    private let onAddSelectedHotKeyChange: (HotKey) -> Void
+    private let onStickSelectedHotKeyChange: (HotKey) -> Void
     private let onHotKeyRecordingChange: (Bool) -> Void
     private let onPanelMetricsChange: (HistoryPanelMetrics) -> Void
     private let onMaxHistoryItemsChange: (Int) -> Void
@@ -669,6 +693,8 @@ private final class SettingsContentController {
         pinnedHotKey: HotKey,
         copyListHotKey: HotKey,
         standaloneHotKey: HotKey,
+        addSelectedHotKey: HotKey,
+        stickSelectedHotKey: HotKey,
         panelMetrics: HistoryPanelMetrics,
         maxHistoryItems: Int,
         autoUpdateEnabled: Bool,
@@ -679,6 +705,8 @@ private final class SettingsContentController {
         onPinnedHotKeyChange: @escaping (HotKey) -> Void,
         onCopyListHotKeyChange: @escaping (HotKey) -> Void,
         onStandaloneHotKeyChange: @escaping (HotKey) -> Void,
+        onAddSelectedHotKeyChange: @escaping (HotKey) -> Void,
+        onStickSelectedHotKeyChange: @escaping (HotKey) -> Void,
         onHotKeyRecordingChange: @escaping (Bool) -> Void,
         onPanelMetricsChange: @escaping (HistoryPanelMetrics) -> Void,
         onMaxHistoryItemsChange: @escaping (Int) -> Void,
@@ -693,6 +721,8 @@ private final class SettingsContentController {
         currentPinnedHotKey = pinnedHotKey
         currentCopyListHotKey = copyListHotKey
         currentStandaloneHotKey = standaloneHotKey
+        currentAddSelectedHotKey = addSelectedHotKey
+        currentStickSelectedHotKey = stickSelectedHotKey
         currentPanelMetrics = panelMetrics
         currentMaxHistoryItems = SettingsStore.clampedHistoryLimit(maxHistoryItems)
         self.onClearHistory = onClearHistory
@@ -701,6 +731,8 @@ private final class SettingsContentController {
         self.onPinnedHotKeyChange = onPinnedHotKeyChange
         self.onCopyListHotKeyChange = onCopyListHotKeyChange
         self.onStandaloneHotKeyChange = onStandaloneHotKeyChange
+        self.onAddSelectedHotKeyChange = onAddSelectedHotKeyChange
+        self.onStickSelectedHotKeyChange = onStickSelectedHotKeyChange
         self.onHotKeyRecordingChange = onHotKeyRecordingChange
         self.onPanelMetricsChange = onPanelMetricsChange
         self.onMaxHistoryItemsChange = onMaxHistoryItemsChange
@@ -719,6 +751,8 @@ private final class SettingsContentController {
         updatePinnedHotKey(pinnedHotKey)
         updateCopyListHotKey(copyListHotKey)
         updateStandaloneHotKey(standaloneHotKey)
+        updateAddSelectedHotKey(addSelectedHotKey)
+        updateStickSelectedHotKey(stickSelectedHotKey)
         updateMaxHistoryItems(currentMaxHistoryItems)
         updateLaunchAtLogin(launchAtLoginEnabled)
         updateAutoUpdateState(autoUpdateEnabled)
@@ -776,6 +810,20 @@ private final class SettingsContentController {
     func updateStandaloneHotKey(_ hotKey: HotKey) {
         currentStandaloneHotKey = hotKey
         standaloneShortcutButton.title = hotKey.displayName
+        recordingHintLabel.stringValue = ""
+        recordingHintLabel.isHidden = true
+    }
+
+    func updateAddSelectedHotKey(_ hotKey: HotKey) {
+        currentAddSelectedHotKey = hotKey
+        addSelectedShortcutButton.title = hotKey.displayName
+        recordingHintLabel.stringValue = ""
+        recordingHintLabel.isHidden = true
+    }
+
+    func updateStickSelectedHotKey(_ hotKey: HotKey) {
+        currentStickSelectedHotKey = hotKey
+        stickSelectedShortcutButton.title = hotKey.displayName
         recordingHintLabel.stringValue = ""
         recordingHintLabel.isHidden = true
     }
@@ -851,6 +899,8 @@ private final class SettingsContentController {
         pinnedShortcutButton.title = currentPinnedHotKey.displayName
         copyListShortcutButton.title = currentCopyListHotKey.displayName
         standaloneShortcutButton.title = currentStandaloneHotKey.displayName
+        addSelectedShortcutButton.title = currentAddSelectedHotKey.displayName
+        stickSelectedShortcutButton.title = currentStickSelectedHotKey.displayName
         recordingHintLabel.stringValue = ""
         recordingHintLabel.isHidden = true
 
@@ -871,8 +921,10 @@ private final class SettingsContentController {
             views: [
                 YSettingUI.row(title: "剪贴板快捷键", trailingView: shortcutButton),
                 YSettingUI.row(title: "固定面板快捷键", trailingView: pinnedShortcutButton),
-                YSettingUI.row(title: "清单／加入选中项", trailingView: copyListShortcutButton),
-                YSettingUI.row(title: "贴出当前／选中项", trailingView: standaloneShortcutButton),
+                YSettingUI.row(title: "打开复制清单", trailingView: copyListShortcutButton),
+                YSettingUI.row(title: "贴出当前剪贴板", trailingView: standaloneShortcutButton),
+                YSettingUI.row(title: "加入高亮条目", trailingView: addSelectedShortcutButton),
+                YSettingUI.row(title: "贴出高亮条目", trailingView: stickSelectedShortcutButton),
                 YSettingUI.row(title: "开机启动", trailingView: YSettingUI.horizontal([launchAtLoginStatusPill, launchAtLoginSwitch])),
                 recordingHintLabel
             ]
@@ -1069,6 +1121,14 @@ private final class SettingsContentController {
         beginRecording(.standalone)
     }
 
+    @objc private func startAddSelectedRecording() {
+        beginRecording(.addSelected)
+    }
+
+    @objc private func startStickSelectedRecording() {
+        beginRecording(.stickSelected)
+    }
+
     private func beginRecording(_ target: HotKeyRecordingTarget) {
         stopRecording()
         recordingTarget = target
@@ -1081,6 +1141,10 @@ private final class SettingsContentController {
             copyListShortcutButton.title = "录制中"
         case .standalone:
             standaloneShortcutButton.title = "录制中"
+        case .addSelected:
+            addSelectedShortcutButton.title = "录制中"
+        case .stickSelected:
+            stickSelectedShortcutButton.title = "录制中"
         }
         recordingHintLabel.stringValue = "按下新的组合键，Esc 取消"
         recordingHintLabel.textColor = .secondaryLabelColor
@@ -1207,7 +1271,8 @@ private final class SettingsContentController {
             pill.widthAnchor.constraint(greaterThanOrEqualToConstant: 74).isActive = true
         }
 
-        for button in [shortcutButton, pinnedShortcutButton, copyListShortcutButton, standaloneShortcutButton] {
+        for button in [shortcutButton, pinnedShortcutButton, copyListShortcutButton,
+                       standaloneShortcutButton, addSelectedShortcutButton, stickSelectedShortcutButton] {
             button.bezelStyle = .rounded
             button.controlSize = .regular
             button.target = self
@@ -1222,6 +1287,8 @@ private final class SettingsContentController {
         pinnedShortcutButton.action = #selector(startPinnedRecording)
         copyListShortcutButton.action = #selector(startCopyListRecording)
         standaloneShortcutButton.action = #selector(startStandaloneRecording)
+        addSelectedShortcutButton.action = #selector(startAddSelectedRecording)
+        stickSelectedShortcutButton.action = #selector(startStickSelectedRecording)
 
         recordingHintLabel.font = .systemFont(ofSize: 12, weight: .regular)
         recordingHintLabel.textColor = .secondaryLabelColor
@@ -1282,6 +1349,20 @@ private final class SettingsContentController {
         }
 
         let target = recordingTarget
+        let existing: [(HotKeyRecordingTarget, HotKey)] = [
+            (.history, currentHotKey),
+            (.pinnedHistory, currentPinnedHotKey),
+            (.copyList, currentCopyListHotKey),
+            (.standalone, currentStandaloneHotKey),
+            (.addSelected, currentAddSelectedHotKey),
+            (.stickSelected, currentStickSelectedHotKey)
+        ]
+        if existing.contains(where: { $0.0 != target && $0.1 == hotKey }) {
+            recordingHintLabel.stringValue = "快捷键已用于其他操作，请换一组"
+            recordingHintLabel.textColor = .systemOrange
+            recordingHintLabel.isHidden = false
+            return
+        }
         stopRecording()
         switch target {
         case .history:
@@ -1292,6 +1373,10 @@ private final class SettingsContentController {
             onCopyListHotKeyChange(hotKey)
         case .standalone:
             onStandaloneHotKeyChange(hotKey)
+        case .addSelected:
+            onAddSelectedHotKeyChange(hotKey)
+        case .stickSelected:
+            onStickSelectedHotKeyChange(hotKey)
         case .none:
             break
         }

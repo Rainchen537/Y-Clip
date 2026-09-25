@@ -94,8 +94,8 @@ final class HistoryRowView: NSView {
     var onAddToCurated: (() -> Void)?
     var onStickOut: (() -> Void)?
     var onSelect: (() -> Void)?
-    var addShortcutName = HotKey.copyListDefault.displayName
-    var stickOutShortcutName = HotKey.standaloneDefault.displayName
+    var addShortcutName = HotKey.addSelectedDefault.displayName
+    var stickOutShortcutName = HotKey.stickSelectedDefault.displayName
 
     /// 鼠标进入/离开本行时回调，由 controller 按真实鼠标位置统一重算 hover，
     /// 避免滚动时 enter/exit 不配对导致多行同时高亮。
@@ -318,17 +318,11 @@ final class ClipboardPanelController {
     var onAddToCurated: ((ClipboardItem) -> Void)?
     var onStickOut: ((ClipboardItem) -> Void)?
     var onPinnedFrameChange: ((NSRect) -> Void)?
-    var copyListShortcutName = HotKey.copyListDefault.displayName {
-        didSet { rowViews.forEach { $0.addShortcutName = copyListShortcutName } }
+    var addSelectedHotKey: HotKey = .addSelectedDefault {
+        didSet { rowViews.forEach { $0.addShortcutName = addSelectedHotKey.displayName } }
     }
-    var standaloneShortcutName = HotKey.standaloneDefault.displayName {
-        didSet { rowViews.forEach { $0.stickOutShortcutName = standaloneShortcutName } }
-    }
-
-    /// 历史面板正在接收键盘时，全局热键操作当前高亮条目。
-    var keyboardSelectedItem: ClipboardItem? {
-        guard panel.isVisible, panel.isKeyWindow, items.indices.contains(selectedIndex) else { return nil }
-        return items[selectedIndex]
+    var stickSelectedHotKey: HotKey = .stickSelectedDefault {
+        didSet { rowViews.forEach { $0.stickOutShortcutName = stickSelectedHotKey.displayName } }
     }
 
     init() {
@@ -746,8 +740,8 @@ final class ClipboardPanelController {
                 self?.selectedIndex = index
                 self?.updateSelection()
             }
-            row.addShortcutName = copyListShortcutName
-            row.stickOutShortcutName = standaloneShortcutName
+            row.addShortcutName = addSelectedHotKey.displayName
+            row.stickOutShortcutName = stickSelectedHotKey.displayName
             row.onHoverProbe = { [weak self] in
                 self?.updateHover()
             }
@@ -790,6 +784,16 @@ final class ClipboardPanelController {
     }
 
     private func handleKey(_ event: NSEvent) -> Bool {
+        if items.indices.contains(selectedIndex) {
+            if addSelectedHotKey.matches(event) {
+                onAddToCurated?(items[selectedIndex])
+                return true
+            }
+            if stickSelectedHotKey.matches(event) {
+                onStickOut?(items[selectedIndex])
+                return true
+            }
+        }
         switch Int(event.keyCode) {
         case kVK_Escape:
             close()

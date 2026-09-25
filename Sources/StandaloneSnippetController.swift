@@ -14,8 +14,21 @@ private final class BorderlessSnippetPanel: NSPanel {
 }
 
 private final class SnippetSelectableTextView: NSTextView {
+    var onZoomWheel: ((NSEvent) -> Void)?
+
     override func scrollWheel(with event: NSEvent) {
-        superview?.scrollWheel(with: event)
+        if event.modifierFlags.contains(.option) {
+            guard let scrollView = enclosingScrollView,
+                  let documentView = scrollView.documentView else { return }
+            let clipView = scrollView.contentView
+            let multiplier: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 20
+            let maximumY = max(0, documentView.bounds.height - clipView.bounds.height)
+            let nextY = min(max(clipView.bounds.origin.y - event.scrollingDeltaY * multiplier, 0), maximumY)
+            clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: nextY))
+            scrollView.reflectScrolledClipView(clipView)
+        } else {
+            onZoomWheel?(event)
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -91,6 +104,7 @@ private final class SnippetCanvasView: NSView {
     var onZoomStep: ((Bool) -> Void)?
     var onResize: ((SnippetResizeGesture, NSPoint) -> Void)?
     private(set) var selectableTextView: SnippetSelectableTextView?
+    private(set) var textScrollView: NSScrollView?
     private var trackingAreaRef: NSTrackingArea?
     private var wheelRemainder: CGFloat = 0
     private var resizeGesture: SnippetResizeGesture?
@@ -101,17 +115,32 @@ private final class SnippetCanvasView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         if image == nil {
+            let scrollView = NSScrollView(frame: .zero)
+            scrollView.borderType = .noBorder
+            scrollView.drawsBackground = false
+            scrollView.hasVerticalScroller = true
+            scrollView.autohidesScrollers = true
+            scrollView.verticalScrollElasticity = .none
             let textView = SnippetSelectableTextView(frame: .zero)
             textView.string = text
             textView.isEditable = false
             textView.isSelectable = true
             textView.isRichText = false
             textView.drawsBackground = false
+            textView.isVerticallyResizable = true
+            textView.isHorizontallyResizable = false
+            textView.autoresizingMask = [.width]
             textView.textContainerInset = .zero
             textView.textContainer?.lineFragmentPadding = 0
             textView.textContainer?.widthTracksTextView = true
-            addSubview(textView)
+            textView.textContainer?.containerSize.height = .greatestFiniteMagnitude
+            textView.onZoomWheel = { [weak self] event in
+                self?.scrollWheel(with: event)
+            }
+            scrollView.documentView = textView
+            addSubview(scrollView)
             selectableTextView = textView
+            textScrollView = scrollView
         }
     }
 
@@ -119,7 +148,7 @@ private final class SnippetCanvasView: NSView {
 
     override func layout() {
         super.layout()
-        selectableTextView?.frame = bounds.insetBy(dx: 14 * zoom, dy: 10 * zoom)
+        textScrollView?.frame = bounds.insetBy(dx: max(14, 14 * zoom), dy: max(10, 10 * zoom))
         selectableTextView?.font = .systemFont(ofSize: 16 * zoom)
         selectableTextView?.textColor = .labelColor
     }
@@ -298,7 +327,9 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         if modifiers == [.command], key == "c" {
-            if !copySelectedText() {
+            if (canvas.selectableTextView?.selectedRange().length ?? 0) > 0 {
+                _ = copySelectedText()
+            } else {
                 copyItem()
             }
             return true

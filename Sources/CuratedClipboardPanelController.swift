@@ -65,7 +65,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         )
         super.init()
         panel.keyHandler = { [weak self] event in
-            self?.handleSplitResultKey(event) ?? false
+            self?.handlePanelKey(event) ?? false
         }
         configurePanel()
         store.onChange = { [weak self] _ in
@@ -313,6 +313,24 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         rowViewsByID.removeAll()
         copyButtonsByID.removeAll()
 
+        if store.canUndoLastEdit, !isEditing, !isSelectingMerge {
+            let undoRow = NSView()
+            undoRow.translatesAutoresizingMaskIntoConstraints = false
+            let undoButton = NSButton(title: "撤销上次编辑", target: self, action: #selector(undoLastEdit))
+            undoButton.bezelStyle = .rounded
+            undoButton.controlSize = .small
+            undoButton.toolTip = "恢复最近一次拆分或合并（⌘Z）"
+            undoButton.translatesAutoresizingMaskIntoConstraints = false
+            undoRow.addSubview(undoButton)
+            rowStack.addArrangedSubview(undoRow)
+            NSLayoutConstraint.activate([
+                undoRow.widthAnchor.constraint(equalTo: rowStack.widthAnchor),
+                undoRow.heightAnchor.constraint(equalToConstant: 29),
+                undoButton.trailingAnchor.constraint(equalTo: undoRow.trailingAnchor, constant: -4),
+                undoButton.centerYAnchor.constraint(equalTo: undoRow.centerYAnchor)
+            ])
+        }
+
         let visibleItems: [ClipboardItem]
         if let displayedSplitIDs {
             let ids = Set(displayedSplitIDs)
@@ -350,6 +368,16 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         let shouldShow = displayedSplitIDs != nil && !isEditing && !isSelectingMerge
         keyboardHintLabel.isHidden = !shouldShow
         listTopConstraint?.constant = shouldShow ? 35 : 12
+    }
+
+    private func handlePanelKey(_ event: NSEvent) -> Bool {
+        if !isEditing, store.canUndoLastEdit,
+           event.modifierFlags.intersection([.command, .option, .control, .shift]) == [.command],
+           Int(event.keyCode) == kVK_ANSI_Z {
+            undoLastEdit()
+            return true
+        }
+        return handleSplitResultKey(event)
     }
 
     private func handleSplitResultKey(_ event: NSEvent) -> Bool {
@@ -571,6 +599,26 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
                 goBack()
             }
         } catch {
+            onError?(error.localizedDescription)
+        }
+    }
+
+    @objc private func undoLastEdit() {
+        let previousIDs = displayedSplitIDs
+        let previousSelection = selectedSplitID
+        displayedSplitIDs = nil
+        selectedSplitID = nil
+        do {
+            try store.undoLastEdit()
+            titleLabel.stringValue = "复制清单"
+            editButton.isHidden = false
+            mergeButton.isHidden = false
+            listScrollView.contentView.scroll(to: .zero)
+            renderRows()
+        } catch {
+            displayedSplitIDs = previousIDs
+            selectedSplitID = previousSelection
+            renderRows()
             onError?(error.localizedDescription)
         }
     }
