@@ -93,6 +93,9 @@ final class HistoryRowView: NSView {
     private var trackingAreaRef: NSTrackingArea?
     var onAddToCurated: (() -> Void)?
     var onStickOut: (() -> Void)?
+    var onSelect: (() -> Void)?
+    var addShortcutName = HotKey.copyListDefault.displayName
+    var stickOutShortcutName = HotKey.standaloneDefault.displayName
 
     /// 鼠标进入/离开本行时回调，由 controller 按真实鼠标位置统一重算 hover，
     /// 避免滚动时 enter/exit 不配对导致多行同时高亮。
@@ -232,11 +235,12 @@ final class HistoryRowView: NSView {
     }
 
     @objc private func showActions() {
+        onSelect?()
         let menu = NSMenu()
-        let add = NSMenuItem(title: "加入复制清单", action: #selector(addToCurated), keyEquivalent: "")
+        let add = NSMenuItem(title: "加入复制清单    \(addShortcutName)", action: #selector(addToCurated), keyEquivalent: "")
         add.target = self
         menu.addItem(add)
-        let stick = NSMenuItem(title: "单独贴出", action: #selector(stickOut), keyEquivalent: "")
+        let stick = NSMenuItem(title: "单独贴出    \(stickOutShortcutName)", action: #selector(stickOut), keyEquivalent: "")
         stick.target = self
         menu.addItem(stick)
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: actionsButton.bounds.height), in: actionsButton)
@@ -314,6 +318,18 @@ final class ClipboardPanelController {
     var onAddToCurated: ((ClipboardItem) -> Void)?
     var onStickOut: ((ClipboardItem) -> Void)?
     var onPinnedFrameChange: ((NSRect) -> Void)?
+    var copyListShortcutName = HotKey.copyListDefault.displayName {
+        didSet { rowViews.forEach { $0.addShortcutName = copyListShortcutName } }
+    }
+    var standaloneShortcutName = HotKey.standaloneDefault.displayName {
+        didSet { rowViews.forEach { $0.stickOutShortcutName = standaloneShortcutName } }
+    }
+
+    /// 历史面板正在接收键盘时，全局热键操作当前高亮条目。
+    var keyboardSelectedItem: ClipboardItem? {
+        guard panel.isVisible, panel.isKeyWindow, items.indices.contains(selectedIndex) else { return nil }
+        return items[selectedIndex]
+    }
 
     init() {
         panel = ClipboardHistoryPanel(
@@ -726,6 +742,12 @@ final class ClipboardPanelController {
             row.onStickOut = { [weak self] in
                 self?.onStickOut?(item)
             }
+            row.onSelect = { [weak self] in
+                self?.selectedIndex = index
+                self?.updateSelection()
+            }
+            row.addShortcutName = copyListShortcutName
+            row.stickOutShortcutName = standaloneShortcutName
             row.onHoverProbe = { [weak self] in
                 self?.updateHover()
             }

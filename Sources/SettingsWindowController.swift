@@ -871,8 +871,8 @@ private final class SettingsContentController {
             views: [
                 YSettingUI.row(title: "剪贴板快捷键", trailingView: shortcutButton),
                 YSettingUI.row(title: "固定面板快捷键", trailingView: pinnedShortcutButton),
-                YSettingUI.row(title: "复制清单快捷键", trailingView: copyListShortcutButton),
-                YSettingUI.row(title: "单独贴出快捷键", trailingView: standaloneShortcutButton),
+                YSettingUI.row(title: "清单／加入选中项", trailingView: copyListShortcutButton),
+                YSettingUI.row(title: "贴出当前／选中项", trailingView: standaloneShortcutButton),
                 YSettingUI.row(title: "开机启动", trailingView: YSettingUI.horizontal([launchAtLoginStatusPill, launchAtLoginSwitch])),
                 recordingHintLabel
             ]

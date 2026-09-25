@@ -89,6 +89,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController.onStickOut = { [weak self] item in
             self?.stickOut(item)
         }
+        panelController.copyListShortcutName = settingsStore.copyListHotKey.displayName
+        panelController.standaloneShortcutName = settingsStore.standaloneHotKey.displayName
 
         showSettingsForPreviewIfRequested()
         UpdateLaunchReadiness.markApplicationReady()
@@ -392,7 +394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let controller = copyListHotKeyController
                 ?? HotKeyController(identifier: HotKeyIdentifier.copyList.rawValue) { [weak self] in
-                    self?.toggleCuratedPanel()
+                    self?.handleCopyListHotKey()
                 }
             try controller.register(hotKey: hotKey)
             copyListHotKeyController = controller
@@ -406,12 +408,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let controller = copyListHotKeyController
                 ?? HotKeyController(identifier: HotKeyIdentifier.copyList.rawValue) { [weak self] in
-                    self?.toggleCuratedPanel()
+                    self?.handleCopyListHotKey()
                 }
             try controller.register(hotKey: hotKey)
             copyListHotKeyController = controller
             settingsStore.copyListHotKey = hotKey
             settingsWindowController?.updateCopyListHotKey(hotKey)
+            panelController.copyListShortcutName = hotKey.displayName
         } catch {
             registerCopyListHotKey(previous)
             settingsWindowController?.updateCopyListHotKey(previous)
@@ -423,7 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let controller = standaloneHotKeyController
                 ?? HotKeyController(identifier: HotKeyIdentifier.standalone.rawValue) { [weak self] in
-                    self?.stickOutCurrentClipboard()
+                    self?.handleStandaloneHotKey()
                 }
             try controller.register(hotKey: hotKey)
             standaloneHotKeyController = controller
@@ -437,12 +440,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let controller = standaloneHotKeyController
                 ?? HotKeyController(identifier: HotKeyIdentifier.standalone.rawValue) { [weak self] in
-                    self?.stickOutCurrentClipboard()
+                    self?.handleStandaloneHotKey()
                 }
             try controller.register(hotKey: hotKey)
             standaloneHotKeyController = controller
             settingsStore.standaloneHotKey = hotKey
             settingsWindowController?.updateStandaloneHotKey(hotKey)
+            panelController.standaloneShortcutName = hotKey.displayName
         } catch {
             registerStandaloneHotKey(previous)
             settingsWindowController?.updateStandaloneHotKey(previous)
@@ -466,6 +470,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             registerPinnedHotKey(settingsStore.pinnedHotKey)
             registerCopyListHotKey(settingsStore.copyListHotKey)
             registerStandaloneHotKey(settingsStore.standaloneHotKey)
+        }
+    }
+
+    private func handleCopyListHotKey() {
+        if let item = panelController.keyboardSelectedItem {
+            addToCurated(item)
+        } else {
+            toggleCuratedPanel()
+        }
+    }
+
+    private func handleStandaloneHotKey() {
+        if let item = panelController.keyboardSelectedItem {
+            stickOut(item)
+        } else {
+            stickOutCurrentClipboard()
         }
     }
 

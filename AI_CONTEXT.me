@@ -13,7 +13,7 @@
 
 ## 项目简介
 
-Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windows `Win + V` 的剪贴板历史体验搬到 macOS。默认 `Option + Command + V` 会在当前光标附近弹出临时历史面板；独立的固定面板快捷键默认是 `Option + Shift + Command + V`，会恢复可拖拽位置并让面板持续浮在普通窗口上方。两种模式都支持文字和图片历史、自动粘贴、菜单栏设置面板、开机启动、自动更新和辅助功能权限修复。审阅分支另有独立的「复制清单」与单条贴出浮窗；用户可从历史选取或手动加入清单，再对已有文字条目进行拆分或合并，不随普通历史滚动。`Option + Shift + Command + C` 切换复制清单，`Option + Shift + Command + P` 直接贴出当前剪贴板，两组快捷键均可自定义。
+Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windows `Win + V` 的剪贴板历史体验搬到 macOS。默认 `Option + Command + V` 会在当前光标附近弹出临时历史面板；独立的固定面板快捷键默认是 `Option + Shift + Command + V`，会恢复可拖拽位置并让面板持续浮在普通窗口上方。两种模式都支持文字和图片历史、自动粘贴、菜单栏设置面板、开机启动、自动更新和辅助功能权限修复。审阅分支另有独立的「复制清单」与单条贴出浮窗；用户可从历史选取或手动加入清单，再对已有文字条目进行拆分或合并，不随普通历史滚动。`Option + Shift + Command + C` 在历史面板高亮时加入选中项，否则切换复制清单；`Option + Shift + Command + P` 在历史面板高亮时贴出选中项，否则直接贴出当前剪贴板；两组快捷键均可自定义。
 
 这个项目曾叫 Global Clipboard。为了保持用户权限、历史数据和自动更新连续性，以下内部标识不要随意修改：
 
@@ -26,7 +26,7 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 
 ## 关键文件
 
-- `Sources/AppDelegate.swift`：应用生命周期、菜单栏入口（包括直接贴出当前内容）、四组全局热键、复制清单返回历史时保留原输入焦点，以及向共享权限协调器注入 Y-Clip 的 Accessibility 状态与修复动作。
+- `Sources/AppDelegate.swift`：应用生命周期、菜单栏入口（包括直接贴出当前内容）、四组全局热键及历史高亮条目对应的加入清单/单独贴出路由、复制清单返回历史时保留原输入焦点，以及向共享权限协调器注入 Y-Clip 的 Accessibility 状态与修复动作。
 - `Sources/ClipboardPanelController.swift`：剪贴板历史面板显示、定位、选择和滚动记忆；负责图钉、固定/临时模式切换、拖拽位置持久化以及固定状态下的实时历史刷新。固定面板选择内容时先释放 key window，避免仍可见的浮层截获自动生成的 `Command+V`。
 - `Sources/FocusContext.swift`：从当前前台 App 自身的 Accessibility 树读取焦点元素，固定面板长期显示时也能恢复到正确输入控件，而不是误用浮层自己的 system-wide focused element。
 - `Sources/SettingsWindowController.swift`：独立设置窗口业务控制器，使用 `Y-Framework/Setting` 的统一设置页面框架；权限页诊断当前运行副本，并可切换到验证通过的 `/Applications/Y-Clip.app`。
@@ -40,7 +40,7 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 - `Sources/CuratedClipboardStore.swift`：复制清单条目的独立持久化与图片副本；已有文字条目的拆分/合并通过一次原子保存原位替换，普通历史淘汰不会清理清单图片。
 - `Sources/CuratedTextSegments.swift`：将回车、Windows 换行和旧式回车统一为行边界；每个非空行可保存为一条。
 - `Sources/CuratedClipboardPanelController.swift`：仅展示复制清单条目的常驻小面板、逐条复制/移除；在同一窗口中用回车分行拆分已有文字，保存后只显示本次新行，列表上方标明 ↑↓ 选择、Enter 复制且不关闭，返回可查看完整清单；也可勾选多条并编辑合并结果。左上角返回按编辑、分行结果、勾选、清单逐层回退；取消不改存储。
-- `Sources/StandaloneSnippetController.swift`：无标题栏、无描边的文字或图片贴出浮窗；拖内容中间移动，拖边角或滚轮等比缩放，悬停/右键菜单只复制原内容或移除，移除不删除历史。
+- `Sources/StandaloneSnippetController.swift`：无标题栏、无描边的文字或图片贴出浮窗；文字以不可编辑的原生文本视图支持拖选，`⌘C` 复制所选片段或未选时复制原内容，菜单也提供所选/原文复制；空白边距或按住 Option 拖文字移动，拖边角或滚轮等比缩放，Delete/Esc 移除且不删除历史。
 - `Tests/StandaloneSnippetResizeTests.swift`、`test_standalone_snippet.sh`：验证边缘/角落拖动缩放时的比例、对侧锚点与最小尺寸。
 - `Tests/CuratedClipboardStoreTests.swift`、`test_curated_clipboard.sh`：复制清单保存、按回车分行的原位拆分/合并、独立复制与历史图片独立保存的测试。
 - `Tests/CurrentClipboardSnapshotTests.swift`、`test_current_clipboard_snapshot.sh`：用独立剪贴板验证当前文字、图片与空内容的贴出选择。

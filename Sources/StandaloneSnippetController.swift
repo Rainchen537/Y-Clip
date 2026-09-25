@@ -7,9 +7,29 @@ private final class BorderlessSnippetPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    override func keyDown(with event: NSEvent) {
-        if onKeyDown?(event) == true { return }
-        super.keyDown(with: event)
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, onKeyDown?(event) == true { return }
+        super.sendEvent(event)
+    }
+}
+
+private final class SnippetSelectableTextView: NSTextView {
+    var onContextMenu: ((NSPoint) -> Void)?
+
+    override func rightMouseDown(with event: NSEvent) {
+        onContextMenu?(superview?.convert(event.locationInWindow, from: nil) ?? .zero)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        superview?.scrollWheel(with: event)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.option) {
+            window?.performDrag(with: event)
+        } else {
+            super.mouseDown(with: event)
+        }
     }
 }
 
@@ -69,12 +89,16 @@ private final class SnippetCanvasView: NSView {
     let text: String
     let image: NSImage?
     var zoom: CGFloat = 1 {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            needsLayout = true
+        }
     }
     var onHoverChange: ((Bool) -> Void)?
     var onZoomStep: ((Bool) -> Void)?
     var onResize: ((SnippetResizeGesture, NSPoint) -> Void)?
     var onContextMenu: ((NSPoint) -> Void)?
+    private(set) var selectableTextView: SnippetSelectableTextView?
     private var trackingAreaRef: NSTrackingArea?
     private var wheelRemainder: CGFloat = 0
     private var resizeGesture: SnippetResizeGesture?
@@ -84,9 +108,32 @@ private final class SnippetCanvasView: NSView {
         self.image = image
         super.init(frame: .zero)
         wantsLayer = true
+        if image == nil {
+            let textView = SnippetSelectableTextView(frame: .zero)
+            textView.string = text
+            textView.isEditable = false
+            textView.isSelectable = true
+            textView.isRichText = false
+            textView.drawsBackground = false
+            textView.textContainerInset = .zero
+            textView.textContainer?.lineFragmentPadding = 0
+            textView.textContainer?.widthTracksTextView = true
+            textView.onContextMenu = { [weak self] point in
+                self?.onContextMenu?(point)
+            }
+            addSubview(textView)
+            selectableTextView = textView
+        }
     }
 
     required init?(coder: NSCoder) { nil }
+
+    override func layout() {
+        super.layout()
+        selectableTextView?.frame = bounds.insetBy(dx: 14 * zoom, dy: 10 * zoom)
+        selectableTextView?.font = .systemFont(ofSize: 16 * zoom)
+        selectableTextView?.textColor = .labelColor
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -105,16 +152,6 @@ private final class SnippetCanvasView: NSView {
 
         NSColor.windowBackgroundColor.withAlphaComponent(0.95).setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 9, yRadius: 9).fill()
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = .byWordWrapping
-        (text as NSString).draw(
-            in: bounds.insetBy(dx: 14 * zoom, dy: 10 * zoom),
-            withAttributes: [
-                .font: NSFont.systemFont(ofSize: 16 * zoom),
-                .foregroundColor: NSColor.labelColor,
-                .paragraphStyle: paragraph
-            ]
-        )
     }
 
     override func updateTrackingAreas() {
@@ -297,11 +334,15 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
 
     private func handleKey(_ event: NSEvent) -> Bool {
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        if event.modifierFlags.contains(.command), key == "c" {
-            copyItem()
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if modifiers == [.command], key == "c" {
+            if !copySelectedText() {
+                copyItem()
+            }
             return true
         }
-        if Int(event.keyCode) == kVK_Escape {
+        if modifiers.isEmpty,
+           [kVK_Escape, kVK_Delete, kVK_ForwardDelete].contains(Int(event.keyCode)) {
             removeSnippet()
             return true
         }
@@ -314,14 +355,23 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
 
     private func showActions(at point: NSPoint) {
         let menu = NSMenu()
-        for (title, action) in [
-            ("复制原内容", #selector(copyItem)),
-            ("移除贴出", #selector(removeSnippet))
-        ] {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            item.target = self
-            menu.addItem(item)
+        let hasSelection = (canvas.selectableTextView?.selectedRange().length ?? 0) > 0
+        if hasSelection {
+            let selected = NSMenuItem(title: "复制所选文字", action: #selector(copySelection), keyEquivalent: "c")
+            selected.keyEquivalentModifierMask = .command
+            selected.target = self
+            menu.addItem(selected)
         }
+        let copy = NSMenuItem(
+            title: "复制原内容", action: #selector(copyItem), keyEquivalent: hasSelection ? "" : "c"
+        )
+        copy.keyEquivalentModifierMask = .command
+        copy.target = self
+        menu.addItem(copy)
+        let remove = NSMenuItem(title: "移除贴出", action: #selector(removeSnippet), keyEquivalent: "\u{8}")
+        remove.keyEquivalentModifierMask = []
+        remove.target = self
+        menu.addItem(remove)
         menu.popUp(positioning: nil, at: point, in: canvas)
     }
 
@@ -385,6 +435,19 @@ final class StandaloneSnippetController: NSObject, NSWindowDelegate {
                 self?.menuButton.title = "操作"
             }
         }
+    }
+
+    @objc private func copySelection() {
+        _ = copySelectedText()
+    }
+
+    @discardableResult
+    private func copySelectedText() -> Bool {
+        guard let textView = canvas.selectableTextView,
+              textView.selectedRange().length > 0 else { return false }
+        let selected = (textView.string as NSString).substring(with: textView.selectedRange())
+        pasteboard.clearContents()
+        return pasteboard.setString(selected, forType: .string)
     }
 
     @objc private func removeSnippet() {
