@@ -66,6 +66,12 @@ struct FeatureInteractionTests {
                         near: NSPoint(x: 300, y: 300), pinned: false, pinnedFrame: nil,
                         onChoose: { _ in }, onClose: {})
         guard let panel = NSApp.windows.first(where: { $0.isVisible }) else { fatalError("历史面板不存在") }
+        let dragHandle = panel.contentView.flatMap { root in
+            descendants(of: root).first { String(describing: type(of: $0)).contains("ClipboardPanelDragHandleView") }
+        }
+        expect(panel.isMovableByWindowBackground && panel.contentView?.mouseDownCanMoveWindow == true,
+               "临时历史面板的空白背景应可拖动")
+        expect(dragHandle?.isHidden == false, "临时历史面板顶部应有可拖动区域")
         panel.sendEvent(key(UInt16(kVK_ANSI_A), flags: [.command, .shift], in: panel))
         expect(added == first.id, "加入快捷键应作用于高亮条目")
         panel.sendEvent(key(UInt16(kVK_DownArrow), in: panel))
@@ -78,6 +84,11 @@ struct FeatureInteractionTests {
         expect(added == nil, "修改后旧快捷键应失效")
         panel.sendEvent(key(UInt16(kVK_ANSI_J), flags: [.control, .command], in: panel))
         expect(added == second.id, "自定义快捷键应生效")
+        controller.show(items: [first, second], metrics: .default,
+                        near: NSPoint(x: 300, y: 300), pinned: true, pinnedFrame: nil,
+                        onChoose: { _ in }, onClose: {})
+        expect(panel.isMovableByWindowBackground && dragHandle?.isHidden == false,
+               "固定历史面板仍应可拖动")
         panel.orderOut(nil)
     }
 

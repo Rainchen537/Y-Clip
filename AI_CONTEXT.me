@@ -27,7 +27,7 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 ## 关键文件
 
 - `Sources/AppDelegate.swift`：应用生命周期、菜单栏入口（包括直接贴出当前内容）、四组全局热键、历史面板两组独立动作快捷键的设置注入、复制清单返回历史时保留原输入焦点，以及向共享权限协调器注入 Y-Clip 的 Accessibility 状态与修复动作。
-- `Sources/ClipboardPanelController.swift`：剪贴板历史面板显示、定位、选择和滚动记忆；负责图钉、固定/临时模式切换、拖拽位置持久化以及固定状态下的实时历史刷新。固定面板选择内容时先释放 key window，避免仍可见的浮层截获自动生成的 `Command+V`。
+- `Sources/ClipboardPanelController.swift`：剪贴板历史面板显示、定位、选择和滚动记忆；临时/固定模式都允许拖动顶部或空白背景，临时面板再次打开仍靠近光标，固定面板记住拖动位置并实时刷新历史。固定面板选择内容时先释放 key window，避免仍可见的浮层截获自动生成的 `Command+V`。
 - `Sources/FocusContext.swift`：从当前前台 App 自身的 Accessibility 树读取焦点元素，固定面板长期显示时也能恢复到正确输入控件，而不是误用浮层自己的 system-wide focused element。
 - `Sources/SettingsWindowController.swift`：独立设置窗口业务控制器，使用 `Y-Framework/Setting` 的统一设置页面框架；权限页诊断当前运行副本，并可切换到验证通过的 `/Applications/Y-Clip.app`。
 - `Sources/ClipboardPreviewView.swift`：设置页面旁侧剪贴板面板预览；功能页选中或重新打开时持续显示，并根据当前屏幕可见区域联动缩放，移动/缩放设置窗口时保留用户选择的 frame。
@@ -45,7 +45,7 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 - `Tests/CuratedClipboardStoreTests.swift`、`test_curated_clipboard.sh`：复制清单保存、按回车分行的原位拆分/合并、独立复制与历史图片独立保存的测试。
 - `Tests/CurrentClipboardSnapshotTests.swift`、`test_current_clipboard_snapshot.sh`：用独立剪贴板验证当前文字、图片与空内容的贴出选择。
 - `Tests/FeatureHotKeySettingsTests.swift`、`test_feature_hotkeys.sh`：在隔离的 UserDefaults 域验证新快捷键默认值和自定义保存，不修改用户设置。
-- `Tests/FeatureInteractionTests.swift`、`test_feature_interactions.sh`：用合成长文字、独立剪贴板和临时清单验证贴出滚动/缩放及复制、历史高亮项独立快捷键、拆分后撤销。
+- `Tests/FeatureInteractionTests.swift`、`test_feature_interactions.sh`：用合成长文字、独立剪贴板和临时清单验证贴出滚动/缩放及复制、历史高亮项独立快捷键、两种历史面板拖动入口、拆分后撤销。
 - `build.sh`：默认以 `TARGET_ARCH=arm64` 构建 thin `build/Y-Clip.app`，也支持白名单内的 `x86_64`，可通过 `BUILD_DIR` / `APP_PATH` 隔离输出；同时编译 vendored 的 Setting 与 Permission Swift 框架。
 - `make_dmg.sh`：共享 DMG 框架的薄配置入口；支持 `APP_NAME_OVERRIDE`、`APP_PATH_OVERRIDE`、`VOLUME_NAME_OVERRIDE`、`DMG_OUTPUT_PATH_OVERRIDE`（兼容 `OUTPUT_PATH_OVERRIDE`）。
 - `Y-Framework/Permission/YPermissionPromptFramework.swift`：首次启动与后续权限弹窗、状态指纹和正式安装副本防护。

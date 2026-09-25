@@ -385,7 +385,7 @@ final class ClipboardPanelController {
         settingsButton.translatesAutoresizingMaskIntoConstraints = false
 
         dragHandleView.translatesAutoresizingMaskIntoConstraints = false
-        dragHandleView.isHidden = true
+        dragHandleView.toolTip = "拖动顶部移动剪贴板历史"
 
         stackView.orientation = .vertical
         stackView.spacing = metrics.rowSpacing
@@ -591,10 +591,10 @@ final class ClipboardPanelController {
 
     private func applyPinnedState(_ pinned: Bool) {
         isPinned = pinned
-        rootView.allowsWindowDrag = pinned
-        dragHandleView.isDragEnabled = pinned
-        dragHandleView.isHidden = !pinned
-        panel.isMovableByWindowBackground = pinned
+        rootView.allowsWindowDrag = true
+        dragHandleView.isDragEnabled = true
+        dragHandleView.isHidden = false
+        panel.isMovableByWindowBackground = true
         panel.level = .floating
         panel.collectionBehavior = pinned
             ? [.canJoinAllSpaces, .fullScreenAuxiliary]
