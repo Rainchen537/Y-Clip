@@ -32,14 +32,21 @@ enum CuratedClipboardError: LocalizedError {
 
 /// 复制清单有自己的存储区，避免普通历史淘汰时删掉用户挑选的图片。
 final class CuratedClipboardStore {
+    private struct UndoSnapshot {
+        let items: [ClipboardItem]
+        let details: [String: [ClipboardItem]]
+    }
+
     private let directory: URL
     private let saveURL: URL
+    private let detailsURL: URL
     private let imagesDirectory: URL
     private let pasteboard: NSPasteboard
 
     private(set) var items: [ClipboardItem]
-    private var undoItems: [ClipboardItem]?
-    var canUndoLastEdit: Bool { undoItems != nil }
+    private var details: [String: [ClipboardItem]]
+    private var undoSnapshot: UndoSnapshot?
+    var canUndoLastEdit: Bool { undoSnapshot != nil }
     var onChange: (([ClipboardItem]) -> Void)?
 
     init(
@@ -49,6 +56,7 @@ final class CuratedClipboardStore {
         self.directory = directory
         self.pasteboard = pasteboard
         saveURL = directory.appendingPathComponent("items.json")
+        detailsURL = directory.appendingPathComponent("details.json")
         imagesDirectory = directory.appendingPathComponent("images", isDirectory: true)
 
         if FileManager.default.fileExists(atPath: saveURL.path) {
@@ -57,6 +65,22 @@ final class CuratedClipboardStore {
         } else {
             items = []
         }
+        if FileManager.default.fileExists(atPath: detailsURL.path) {
+            let data = try Data(contentsOf: detailsURL)
+            let loaded = try JSONDecoder().decode([String: [ClipboardItem]].self, from: data)
+            let liveIDs = Set(items.map { $0.id.uuidString })
+            details = loaded.filter { liveIDs.contains($0.key) }
+            if details.count != loaded.count {
+                try? JSONEncoder().encode(details).write(to: detailsURL, options: [.atomic])
+            }
+        } else {
+            details = [:]
+        }
+    }
+
+    func detailItems(for parentID: UUID) -> [ClipboardItem] {
+        guard items.contains(where: { $0.id == parentID }) else { return [] }
+        return details[parentID.uuidString] ?? []
     }
 
     @discardableResult
@@ -110,6 +134,7 @@ final class CuratedClipboardStore {
             return
         }
         try replaceItems(items.filter { $0.id != id })
+        pruneDetailsForCurrentItems()
         if let payload = item.image,
            !items.contains(where: { $0.image?.fileName == payload.fileName }),
            let imageURL = imageURL(for: payload) {
@@ -132,11 +157,14 @@ final class CuratedClipboardStore {
             throw CuratedClipboardError.emptyText
         }
 
-        let replacements = segments.map { ClipboardItem(text: $0) }
-        var next = items
-        next.replaceSubrange(index...index, with: replacements)
-        try replaceItems(next, undoSnapshot: items)
-        return replacements
+        let rows = segments.map { ClipboardItem(text: $0) }
+        let previous = UndoSnapshot(items: items, details: details)
+        var nextDetails = details
+        nextDetails[id.uuidString] = rows
+        try persistDetails(nextDetails)
+        undoSnapshot = previous
+        onChange?(items)
+        return rows
     }
 
     @discardableResult
@@ -157,17 +185,44 @@ final class CuratedClipboardStore {
 
         let firstIndex = items.firstIndex(where: { selected.contains($0.id) })!
         let merged = ClipboardItem(text: text)
+        let selectedItems = items.filter { selected.contains($0.id) }
+        let hasDetails = selectedItems.contains { !(details[$0.id.uuidString] ?? []).isEmpty }
+        let mergedDetails = selectedItems.flatMap { item -> [ClipboardItem] in
+            if let rows = details[item.id.uuidString], !rows.isEmpty { return rows }
+            return item.text.map { [ClipboardItem(text: $0)] } ?? []
+        }
+        let previous = UndoSnapshot(items: items, details: details)
         let next = items.enumerated().compactMap { index, item -> ClipboardItem? in
             guard selected.contains(item.id) else { return item }
             return index == firstIndex ? merged : nil
         }
-        try replaceItems(next, undoSnapshot: items)
+        if hasDetails {
+            var stagedDetails = details
+            stagedDetails[merged.id.uuidString] = mergedDetails
+            try persistDetails(stagedDetails)
+        }
+        do {
+            try replaceItems(next, undoSnapshot: previous)
+        } catch {
+            if hasDetails { try? persistDetails(previous.details) }
+            throw error
+        }
+        pruneDetailsForCurrentItems()
         return merged
     }
 
     func undoLastEdit() throws {
-        guard let undoItems else { throw CuratedClipboardError.nothingToUndo }
-        try replaceItems(undoItems)
+        guard let undoSnapshot else { throw CuratedClipboardError.nothingToUndo }
+        try persistDetails(undoSnapshot.details)
+        try replaceItems(undoSnapshot.items)
+    }
+
+    @discardableResult
+    func copyDetailToPasteboard(_ item: ClipboardItem, parentID: UUID) -> Bool {
+        guard let stored = detailItems(for: parentID).first(where: { $0.id == item.id }),
+              let text = stored.text else { return false }
+        pasteboard.clearContents()
+        return pasteboard.setString(text, forType: .string)
     }
 
     func imageURL(for payload: ImagePayload) -> URL? {
@@ -198,12 +253,26 @@ final class CuratedClipboardStore {
         }
     }
 
-    private func replaceItems(_ next: [ClipboardItem], undoSnapshot: [ClipboardItem]? = nil) throws {
+    private func persistDetails(_ next: [String: [ClipboardItem]]) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try JSONEncoder().encode(next).write(to: detailsURL, options: [.atomic])
+        details = next
+    }
+
+    private func pruneDetailsForCurrentItems() {
+        let liveIDs = Set(items.map { $0.id.uuidString })
+        let next = details.filter { liveIDs.contains($0.key) }
+        if next.count != details.count {
+            try? persistDetails(next)
+        }
+    }
+
+    private func replaceItems(_ next: [ClipboardItem], undoSnapshot: UndoSnapshot? = nil) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(next)
         try data.write(to: saveURL, options: [.atomic])
         items = next
-        undoItems = undoSnapshot
+        self.undoSnapshot = undoSnapshot
         onChange?(items)
     }
 

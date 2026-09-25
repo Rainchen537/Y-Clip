@@ -37,15 +37,15 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 - `Sources/StatusBarIcon.swift`：菜单栏线性描边小图标。
 - `Sources/ClipboardHistoryStore.swift`：剪贴板监听、历史记录、图片落盘。
 - `Sources/CurrentClipboardSnapshot.swift`：单独贴出快捷键按下时直接读取当前剪贴板的文字或图片；不依赖历史轮询，也不更改剪贴板。
-- `Sources/CuratedClipboardStore.swift`：复制清单条目的独立持久化与图片副本；已有文字条目的拆分/合并通过一次原子保存原位替换，并为最近一次编辑提供本次会话内的撤销快照；普通历史淘汰不会清理清单图片。
+- `Sources/CuratedClipboardStore.swift`：`items.json` 保留首页原条目，`details.json` 按原条目 ID 独立保存拆分行；旧版散列首页条目不自动归组。合并首页条目时保留其详情，最近一次拆分/合并有本次会话内的撤销快照；清单图片有独立副本。
 - `Sources/CuratedTextSegments.swift`：将回车、Windows 换行和旧式回车统一为行边界；每个非空行可保存为一条。
-- `Sources/CuratedClipboardPanelController.swift`：仅展示复制清单条目的常驻小面板、逐条复制/移除；在同一窗口中用回车分行拆分已有文字，保存后只显示本次新行，列表上方标明 ↑↓ 选择、Enter 复制且不关闭；拆分或合并后可用按钮/⌘Z 撤销最近一次编辑。左上角返回按编辑、分行结果、勾选、清单逐层回退；取消不改存储。
+- `Sources/CuratedClipboardPanelController.swift`：同一常驻窗口的首页只显示原条目，已有拆分的文字条目点「详情」进入分行复制页；详情支持 ↑↓、Enter 和逐行复制，点「重拆」编辑已有原文。首页多条文字可合并；拆分/合并后可按钮或 ⌘Z 撤销。左上角返回逐层回退，取消不改存储。
 - `Sources/StandaloneSnippetController.swift`：无标题栏、无描边、无操作按钮或自定义菜单的文字/图片贴出浮窗；长文字在透明滚动区内可查看全部，普通滚轮缩放、Option+滚轮滚动；`⌘C` 复制所选片段或未选时复制原内容，复制失败不回退到整段。空白边距或按住 Option 拖文字移动，拖边角等比缩放，Delete/Esc 移除且不删除历史。
 - `Tests/StandaloneSnippetResizeTests.swift`、`test_standalone_snippet.sh`：验证边缘/角落拖动缩放时的比例、对侧锚点与最小尺寸。
-- `Tests/CuratedClipboardStoreTests.swift`、`test_curated_clipboard.sh`：复制清单保存、按回车分行的原位拆分/合并、独立复制与历史图片独立保存的测试。
+- `Tests/CuratedClipboardStoreTests.swift`、`test_curated_clipboard.sh`：首页原文、独立持久化的拆分详情、详情行复制、合并保留详情、撤销与历史图片独立保存的测试。
 - `Tests/CurrentClipboardSnapshotTests.swift`、`test_current_clipboard_snapshot.sh`：用独立剪贴板验证当前文字、图片与空内容的贴出选择。
 - `Tests/FeatureHotKeySettingsTests.swift`、`test_feature_hotkeys.sh`：在隔离的 UserDefaults 域验证新快捷键默认值和自定义保存，不修改用户设置。
-- `Tests/FeatureInteractionTests.swift`、`test_feature_interactions.sh`：用合成长文字、独立剪贴板和临时清单验证贴出滚动/缩放及复制、历史高亮项独立快捷键、两种历史面板拖动入口、拆分后撤销。
+- `Tests/FeatureInteractionTests.swift`、`test_feature_interactions.sh`：用合成长文字、独立剪贴板和临时清单验证贴出滚动/缩放、历史快捷键、面板拖动、清单首页与详情切换/复制/重拆及撤销。
 - `build.sh`：默认以 `TARGET_ARCH=arm64` 构建 thin `build/Y-Clip.app`，也支持白名单内的 `x86_64`，可通过 `BUILD_DIR` / `APP_PATH` 隔离输出；同时编译 vendored 的 Setting 与 Permission Swift 框架。
 - `make_dmg.sh`：共享 DMG 框架的薄配置入口；支持 `APP_NAME_OVERRIDE`、`APP_PATH_OVERRIDE`、`VOLUME_NAME_OVERRIDE`、`DMG_OUTPUT_PATH_OVERRIDE`（兼容 `OUTPUT_PATH_OVERRIDE`）。
 - `Y-Framework/Permission/YPermissionPromptFramework.swift`：首次启动与后续权限弹窗、状态指纹和正式安装副本防护。

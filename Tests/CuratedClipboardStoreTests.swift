@@ -24,21 +24,28 @@ struct CuratedClipboardStoreTests {
         _ = try store.addText("备注")
         let address = try store.addText("北京市示例路")
         let segments = try store.splitText(source.id, into: ["张三", "13800000000"])
-        expect(store.items.compactMap(\.text) == ["张三", "13800000000", "备注", "北京市示例路"], "拆分应在原位置替换，而非追加")
-        expect(!store.items.contains(where: { $0.id == source.id }), "拆分后不应留下原整段内容")
+        expect(store.items.compactMap(\.text) == ["姓名：张三 电话：13800000000", "备注", "北京市示例路"], "拆分后首页应保留原整段")
+        expect(store.detailItems(for: source.id).map(\.id) == segments.map(\.id), "拆分行应只归属原条目详情")
+        expect(store.copyDetailToPasteboard(segments[1], parentID: source.id), "详情行应可独立复制")
+        expect(pasteboard.string(forType: .string) == "13800000000", "详情行复制不应包含原整段")
+        let reopenedSplit = try CuratedClipboardStore(directory: directory, pasteboard: pasteboard)
+        expect(reopenedSplit.detailItems(for: source.id).map(\.text) == ["张三", "13800000000"], "拆分详情应持久化")
 
         do {
-            _ = try store.splitText(segments[0].id, into: ["仅一段"])
+            _ = try store.splitText(source.id, into: ["仅一段"])
             fatalError("单段不应覆盖原条目")
         } catch CuratedClipboardError.requiresTwoSegments {
-            expect(store.items[0].id == segments[0].id, "拆分无效时原条目应保留")
+            expect(store.detailItems(for: source.id).map(\.id) == segments.map(\.id), "拆分无效时原详情应保留")
         }
 
-        let merged = try store.mergeText([address.id, segments[0].id], into: "张三\n北京市示例路")
-        expect(store.items.compactMap(\.text) == ["张三\n北京市示例路", "13800000000", "备注"], "合并应放在最早被选中条目的位置，保留未选中条目")
+        let merged = try store.mergeText([address.id, source.id], into: "张三\n北京市示例路")
+        expect(store.items.compactMap(\.text) == ["张三\n北京市示例路", "备注"], "合并应只处理首页所选条目")
         expect(store.items[0].id == merged.id, "合并结果应有独立 ID")
         let reopened = try CuratedClipboardStore(directory: directory, pasteboard: pasteboard)
         expect(reopened.items.compactMap(\.text) == store.items.compactMap(\.text), "拆分和合并结果应持久化")
+        expect(reopened.detailItems(for: source.id).isEmpty, "合并后旧条目的详情不应留在可见清单")
+        expect(reopened.detailItems(for: merged.id).compactMap(\.text) == ["张三", "13800000000", "北京市示例路"],
+               "合并应把原详情行带入合并条目，避免丢失")
     }
 
     private static func testManualEntryAndPersistence() throws {
@@ -81,13 +88,16 @@ struct CuratedClipboardStoreTests {
         expect(store.canUndoLastEdit, "拆分后应允许撤销")
         try store.undoLastEdit()
         expect(store.items.map(\.id) == [original.id, address.id], "撤销拆分应恢复原内容及 ID")
+        expect(store.detailItems(for: original.id).isEmpty, "撤销拆分应移除详情行")
         expect(!store.canUndoLastEdit, "一次撤销后不应重复撤销")
 
+        let details = try store.splitText(original.id, into: ["姓名：张三", "电话：13800000000"])
         _ = try store.mergeText([original.id, address.id], into: "合并结果")
         expect(store.canUndoLastEdit, "合并后应允许撤销")
         try store.undoLastEdit()
         expect(store.items.map(\.id) == [original.id, address.id], "撤销合并应恢复原顺序")
         expect(store.items[0].text == "姓名：张三\n电话：13800000000", "撤销合并应恢复原文")
+        expect(store.detailItems(for: original.id).map(\.id) == details.map(\.id), "撤销合并应恢复原详情")
 
         _ = try store.splitText(original.id, into: ["姓名：张三", "电话：13800000000"])
         _ = try store.addText("新条目")

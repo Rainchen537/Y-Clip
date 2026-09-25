@@ -113,10 +113,24 @@ struct FeatureInteractionTests {
         let offset = (editor.string as NSString).range(of: "电话").location
         editor.insertText("\n", replacementRange: NSRange(location: offset, length: 0))
         button(in: root, title: "保存拆分").performClick(nil)
-        expect(store.items.count == 2 && store.canUndoLastEdit, "拆分后应提供撤销")
+        let detailRows = store.detailItems(for: original.id)
+        expect(store.items.count == 1 && store.items[0].id == original.id,
+               "拆分后首页应保留原条目")
+        expect(detailRows.count == 2 && store.canUndoLastEdit, "拆分行应进入详情并可撤销")
+        button(in: root, title: "复制", id: detailRows[1].id).performClick(nil)
+        expect(board.string(forType: .string) == "电话：13800000000", "详情行应独立复制")
+        button(in: root, title: "返回").performClick(nil)
+        button(in: root, title: "复制", id: original.id).performClick(nil)
+        expect(board.string(forType: .string) == original.text, "首页复制应保留原整段")
+        button(in: root, title: "详情", id: original.id).performClick(nil)
+        expect(store.detailItems(for: original.id).count == 2, "首页应可重新进入详情")
+        button(in: root, title: "重拆").performClick(nil)
+        button(in: root, title: "返回").performClick(nil)
+        expect(store.detailItems(for: original.id).count == 2, "取消重拆不应改动详情")
         button(in: root, title: "撤销上次编辑").performClick(nil)
         expect(store.items.count == 1 && store.items[0].id == original.id,
                "撤销应恢复原条目和 ID")
+        expect(store.detailItems(for: original.id).isEmpty, "撤销应移除本次详情拆分")
         panel.close()
     }
 
