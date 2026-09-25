@@ -39,7 +39,7 @@ Y-Clip 是一个原生 macOS 菜单栏剪贴板历史工具，目标是把 Windo
 - `Sources/CurrentClipboardSnapshot.swift`：单独贴出快捷键按下时直接读取当前剪贴板的文字或图片；不依赖历史轮询，也不更改剪贴板。
 - `Sources/CuratedClipboardStore.swift`：复制清单条目的独立持久化与图片副本；已有文字条目的拆分/合并通过一次原子保存原位替换，普通历史淘汰不会清理清单图片。
 - `Sources/CuratedTextSegments.swift`：将回车、Windows 换行和旧式回车统一为行边界；每个非空行可保存为一条。
-- `Sources/CuratedClipboardPanelController.swift`：仅展示复制清单条目的常驻小面板、逐条复制/移除；在同一窗口中用回车分行拆分已有文字，保存后只显示本次新行供逐行复制，返回可查看完整清单；也可勾选多条并编辑合并结果。左上角返回按编辑、分行结果、勾选、清单逐层回退；取消不改存储。
+- `Sources/CuratedClipboardPanelController.swift`：仅展示复制清单条目的常驻小面板、逐条复制/移除；在同一窗口中用回车分行拆分已有文字，保存后只显示本次新行，支持 ↑↓ 循环选中、Enter 复制且保持窗口可见，返回可查看完整清单；也可勾选多条并编辑合并结果。左上角返回按编辑、分行结果、勾选、清单逐层回退；取消不改存储。
 - `Sources/StandaloneSnippetController.swift`：无标题栏、无描边的文字或图片贴出浮窗；拖内容中间移动，拖边角或滚轮等比缩放，悬停/右键菜单只复制原内容或移除，移除不删除历史。
 - `Tests/StandaloneSnippetResizeTests.swift`、`test_standalone_snippet.sh`：验证边缘/角落拖动缩放时的比例、对侧锚点与最小尺寸。
 - `Tests/CuratedClipboardStoreTests.swift`、`test_curated_clipboard.sh`：复制清单保存、按回车分行的原位拆分/合并、独立复制与历史图片独立保存的测试。
