@@ -35,6 +35,8 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
     private let backButton = NSButton()
     private let titleLabel = NSTextField(labelWithString: "复制清单")
     private let countLabel = NSTextField(labelWithString: "")
+    private let keyboardHintLabel = NSTextField(labelWithString: "↑↓ 选择 · Enter 复制（不关闭）")
+    private var listTopConstraint: NSLayoutConstraint?
     private let editButton = NSButton()
     private let mergeButton = NSButton()
     private let editorInstructionLabel = NSTextField(labelWithString: "")
@@ -108,6 +110,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         }
         editButton.isHidden = true
         mergeButton.isHidden = true
+        updateKeyboardHint()
         switch purpose {
         case .add:
             titleLabel.stringValue = "添加内容"
@@ -220,6 +223,10 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         countLabel.textColor = .secondaryLabelColor
         countLabel.translatesAutoresizingMaskIntoConstraints = false
+        keyboardHintLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        keyboardHintLabel.textColor = .secondaryLabelColor
+        keyboardHintLabel.translatesAutoresizingMaskIntoConstraints = false
+        keyboardHintLabel.isHidden = true
 
         editButton.title = "添加"
         editButton.bezelStyle = .rounded
@@ -253,11 +260,14 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
         root.addSubview(backButton)
         root.addSubview(titleLabel)
         root.addSubview(countLabel)
+        root.addSubview(keyboardHintLabel)
         root.addSubview(editButton)
         root.addSubview(mergeButton)
         root.addSubview(listScrollView)
         root.addSubview(editorView)
 
+        let listTopConstraint = listScrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12)
+        self.listTopConstraint = listTopConstraint
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: root.topAnchor, constant: 14),
             backButton.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
@@ -271,7 +281,10 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
             editButton.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
             editButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
 
-            listScrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
+            keyboardHintLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 7),
+            keyboardHintLabel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
+            keyboardHintLabel.trailingAnchor.constraint(lessThanOrEqualTo: root.trailingAnchor, constant: -12),
+            listTopConstraint,
             listScrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 9),
             listScrollView.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -9),
             listScrollView.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -9),
@@ -288,6 +301,7 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
     }
 
     private func renderRows() {
+        updateKeyboardHint()
         updateHeaderCount()
         mergeButton.isEnabled = isSelectingMerge
             ? selectedMergeIDs.count >= 2
@@ -330,6 +344,12 @@ final class CuratedClipboardPanelController: NSObject, NSWindowDelegate, NSTextV
             row.widthAnchor.constraint(equalTo: rowStack.widthAnchor).isActive = true
             rowViewsByID[item.id] = row
         }
+    }
+
+    private func updateKeyboardHint() {
+        let shouldShow = displayedSplitIDs != nil && !isEditing && !isSelectingMerge
+        keyboardHintLabel.isHidden = !shouldShow
+        listTopConstraint?.constant = shouldShow ? 35 : 12
     }
 
     private func handleSplitResultKey(_ event: NSEvent) -> Bool {
