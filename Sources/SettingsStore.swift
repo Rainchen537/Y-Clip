@@ -5,6 +5,10 @@ final class SettingsStore {
     private enum Keys {
         static let hotKey = "hotKey"
         static let pinnedHotKey = "pinnedHotKey"
+        static let copyListHotKey = "copyListHotKey"
+        static let standaloneHotKey = "standaloneHotKey"
+        static let addSelectedHotKey = "addSelectedHotKey"
+        static let stickSelectedHotKey = "stickSelectedHotKey"
         static let pinnedPanelFrame = "pinnedPanelFrame"
         static let menuSize = "menuSize"
         static let maxHistoryItems = "maxHistoryItems"
@@ -19,7 +23,11 @@ final class SettingsStore {
     static let defaultMaxHistoryItems = 50
     static let allowedHistoryRange = 1...500
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     var hotKey: HotKey {
         get {
@@ -58,6 +66,62 @@ final class SettingsStore {
             }
 
             defaults.set(data, forKey: Keys.pinnedHotKey)
+        }
+    }
+
+    var copyListHotKey: HotKey {
+        get {
+            guard let data = defaults.data(forKey: Keys.copyListHotKey),
+                  let hotKey = try? JSONDecoder().decode(HotKey.self, from: data) else {
+                return .copyListDefault
+            }
+            return hotKey
+        }
+        set {
+            guard let data = try? JSONEncoder().encode(newValue) else { return }
+            defaults.set(data, forKey: Keys.copyListHotKey)
+        }
+    }
+
+    var standaloneHotKey: HotKey {
+        get {
+            guard let data = defaults.data(forKey: Keys.standaloneHotKey),
+                  let hotKey = try? JSONDecoder().decode(HotKey.self, from: data) else {
+                return .standaloneDefault
+            }
+            return hotKey
+        }
+        set {
+            guard let data = try? JSONEncoder().encode(newValue) else { return }
+            defaults.set(data, forKey: Keys.standaloneHotKey)
+        }
+    }
+
+    var addSelectedHotKey: HotKey {
+        get {
+            guard let data = defaults.data(forKey: Keys.addSelectedHotKey),
+                  let hotKey = try? JSONDecoder().decode(HotKey.self, from: data) else {
+                return .addSelectedDefault
+            }
+            return hotKey
+        }
+        set {
+            guard let data = try? JSONEncoder().encode(newValue) else { return }
+            defaults.set(data, forKey: Keys.addSelectedHotKey)
+        }
+    }
+
+    var stickSelectedHotKey: HotKey {
+        get {
+            guard let data = defaults.data(forKey: Keys.stickSelectedHotKey),
+                  let hotKey = try? JSONDecoder().decode(HotKey.self, from: data) else {
+                return .stickSelectedDefault
+            }
+            return hotKey
+        }
+        set {
+            guard let data = try? JSONEncoder().encode(newValue) else { return }
+            defaults.set(data, forKey: Keys.stickSelectedHotKey)
         }
     }
 

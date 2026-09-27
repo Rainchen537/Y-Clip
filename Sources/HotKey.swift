@@ -16,6 +16,30 @@ struct HotKey: Codable, Equatable {
         modifiers: UInt32(optionKey) | UInt32(shiftKey) | UInt32(cmdKey)
     )
 
+    static let copyListDefault = HotKey(
+        keyCode: UInt32(kVK_ANSI_C),
+        modifiers: UInt32(optionKey) | UInt32(shiftKey) | UInt32(cmdKey)
+    )
+
+    static let standaloneDefault = HotKey(
+        keyCode: UInt32(kVK_ANSI_P),
+        modifiers: UInt32(optionKey) | UInt32(shiftKey) | UInt32(cmdKey)
+    )
+
+    static let addSelectedDefault = HotKey(
+        keyCode: UInt32(kVK_ANSI_A),
+        modifiers: UInt32(shiftKey) | UInt32(cmdKey)
+    )
+
+    static let stickSelectedDefault = HotKey(
+        keyCode: UInt32(kVK_ANSI_P),
+        modifiers: UInt32(shiftKey) | UInt32(cmdKey)
+    )
+
+    func matches(_ event: NSEvent) -> Bool {
+        HotKey(event: event) == self
+    }
+
     var displayName: String {
         var value = ""
 
