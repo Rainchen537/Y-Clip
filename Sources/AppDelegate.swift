@@ -4,12 +4,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum HotKeyIdentifier: UInt32 {
         case history = 1
         case pinnedHistory = 2
+        case copyList = 3
+        case standalone = 4
     }
 
     private let settingsStore = SettingsStore()
     private lazy var historyStore = ClipboardHistoryStore(maxItems: settingsStore.maxHistoryItems)
     private let softwareUpdateController = SoftwareUpdateController()
     private let panelController = ClipboardPanelController()
+    private var curatedStore: CuratedClipboardStore?
+    private var curatedPanelController: CuratedClipboardPanelController?
+    private var standalonePanels: [UUID: StandaloneSnippetController] = [:]
     private lazy var permissionPromptCoordinator = YPermissionPromptCoordinator(
         configuration: YPermissionPromptConfiguration(
             appName: "Y-Clip",
@@ -18,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private var hotKeyController: HotKeyController?
     private var pinnedHotKeyController: HotKeyController?
+    private var copyListHotKeyController: HotKeyController?
+    private var standaloneHotKeyController: HotKeyController?
     private var hotKeysSuspendedForRecording = false
     private var settingsWindowController: SettingsWindowController?
     private var statusItem: NSStatusItem?
@@ -34,6 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         registerHotKey(settingsStore.hotKey)
         registerPinnedHotKey(settingsStore.pinnedHotKey)
+        registerCopyListHotKey(settingsStore.copyListHotKey)
+        registerStandaloneHotKey(settingsStore.standaloneHotKey)
         scheduleAutomaticUpdateCheckIfNeeded()
         rememberAccessibilityTrustIfNeeded()
         let wasAccessibilityRepairPending = settingsStore.accessibilityRepairPending
@@ -65,6 +74,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.openSettings()
             }
         }
+        panelController.onOpenCuratedPanel = { [weak self] in
+            guard let self else { return }
+            if !panelController.isPinned {
+                panelController.dismissForSettingsTransition()
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.ensureCuratedPanel()?.show(returnToHistory: true)
+            }
+        }
+        panelController.onAddToCurated = { [weak self] item in
+            self?.addToCurated(item)
+        }
+        panelController.onStickOut = { [weak self] item in
+            self?.stickOut(item)
+        }
+        panelController.addSelectedHotKey = settingsStore.addSelectedHotKey
+        panelController.stickSelectedHotKey = settingsStore.stickSelectedHotKey
 
         showSettingsForPreviewIfRequested()
         UpdateLaunchReadiness.markApplicationReady()
@@ -83,6 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         hotKeyController = nil
         pinnedHotKeyController = nil
+        copyListHotKeyController = nil
+        standaloneHotKeyController = nil
     }
 
     private func setupStatusItem() {
@@ -90,12 +118,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.image = StatusBarIcon.makeImage()
         item.button?.imagePosition = .imageOnly
         item.button?.toolTip = "Y-Clip"
-        item.menu = YProjectStatusMenu.make(
+        let menu = YProjectStatusMenu.make(
             target: self,
             openSettingsAction: #selector(openSettings),
             quitAction: #selector(quit),
             appName: "Y-Clip"
         )
+        let curatedItem = NSMenuItem(
+            title: "打开复制清单",
+            action: #selector(openCuratedPanel),
+            keyEquivalent: ""
+        )
+        curatedItem.target = self
+        menu.insertItem(curatedItem, at: 0)
+        let standaloneItem = NSMenuItem(
+            title: "单独贴出当前内容",
+            action: #selector(stickOutCurrentClipboard),
+            keyEquivalent: ""
+        )
+        standaloneItem.target = self
+        menu.insertItem(standaloneItem, at: 1)
+        item.menu = menu
 
         statusItem = item
     }
@@ -104,6 +147,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindowController = SettingsWindowController(
             hotKey: settingsStore.hotKey,
             pinnedHotKey: settingsStore.pinnedHotKey,
+            copyListHotKey: settingsStore.copyListHotKey,
+            standaloneHotKey: settingsStore.standaloneHotKey,
+            addSelectedHotKey: settingsStore.addSelectedHotKey,
+            stickSelectedHotKey: settingsStore.stickSelectedHotKey,
             panelMetrics: settingsStore.panelMetrics,
             maxHistoryItems: settingsStore.maxHistoryItems,
             autoUpdateEnabled: settingsStore.autoUpdateEnabled,
@@ -119,6 +166,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onPinnedHotKeyChange: { [weak self] hotKey in
                 self?.setPinnedHotKey(hotKey)
+            },
+            onCopyListHotKeyChange: { [weak self] hotKey in
+                self?.setCopyListHotKey(hotKey)
+            },
+            onStandaloneHotKeyChange: { [weak self] hotKey in
+                self?.setStandaloneHotKey(hotKey)
+            },
+            onAddSelectedHotKeyChange: { [weak self] hotKey in
+                self?.settingsStore.addSelectedHotKey = hotKey
+                self?.panelController.addSelectedHotKey = hotKey
+                self?.settingsWindowController?.updateAddSelectedHotKey(hotKey)
+            },
+            onStickSelectedHotKeyChange: { [weak self] hotKey in
+                self?.settingsStore.stickSelectedHotKey = hotKey
+                self?.panelController.stickSelectedHotKey = hotKey
+                self?.settingsWindowController?.updateStickSelectedHotKey(hotKey)
             },
             onHotKeyRecordingChange: { [weak self] isRecording in
                 self?.setHotKeyRecordingSuspended(isRecording)
@@ -158,6 +221,94 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         settingsWindowController?.show()
+    }
+
+    @objc private func openCuratedPanel() {
+        ensureCuratedPanel()?.show(returnToHistory: false)
+    }
+
+    private func toggleCuratedPanel() {
+        ensureCuratedPanel()?.toggle()
+    }
+
+    private func ensureCuratedPanel() -> CuratedClipboardPanelController? {
+        if let curatedPanelController {
+            return curatedPanelController
+        }
+        do {
+            let store = try CuratedClipboardStore()
+            let controller = CuratedClipboardPanelController(store: store)
+            controller.onError = { [weak self] message in
+                self?.showAlert(title: "复制清单", message: message)
+            }
+            controller.onBackToHistory = { [weak self] in
+                guard let self else { return }
+                self.showClipboardHistory(
+                    pinned: self.panelController.isPinned,
+                    preserveFocusContext: true
+                )
+            }
+            curatedStore = store
+            curatedPanelController = controller
+            return controller
+        } catch {
+            showAlert(title: "无法打开复制清单", message: error.localizedDescription)
+            return nil
+        }
+    }
+
+    private func addToCurated(_ item: ClipboardItem) {
+        guard let controller = ensureCuratedPanel(), let store = curatedStore else { return }
+        do {
+            let imageURL = item.image.map { historyStore.imageURL(for: $0) }
+            try store.addFromHistory(item, imageURL: imageURL)
+            if !panelController.isPinned {
+                panelController.dismissForSettingsTransition()
+            }
+            DispatchQueue.main.async {
+                controller.show(returnToHistory: true)
+            }
+        } catch {
+            showAlert(title: "加入复制清单失败", message: error.localizedDescription)
+        }
+    }
+
+    private func stickOut(_ item: ClipboardItem) {
+        let imageData: Data?
+        if let payload = item.image {
+            guard let data = try? Data(contentsOf: historyStore.imageURL(for: payload)) else {
+                showAlert(title: "无法贴出", message: "原图片已不在剪贴板历史中。")
+                return
+            }
+            imageData = data
+        } else {
+            imageData = nil
+        }
+
+        showStandalone(item: item, imageData: imageData)
+    }
+
+    @objc private func stickOutCurrentClipboard() {
+        guard let snapshot = CurrentClipboardSnapshot.capture() else {
+            showAlert(title: "无法单独贴出", message: "当前剪贴板没有可贴出的文字或图片。")
+            return
+        }
+        showStandalone(item: snapshot.item, imageData: snapshot.imageData)
+    }
+
+    private func showStandalone(item: ClipboardItem, imageData: Data?) {
+        let controller = StandaloneSnippetController(item: item, imageData: imageData)
+        controller.onClose = { [weak self] id in
+            self?.standalonePanels.removeValue(forKey: id)
+        }
+        standalonePanels[controller.id] = controller
+        let point = NSEvent.mouseLocation
+        if !panelController.isPinned {
+            panelController.dismissForSettingsTransition()
+        }
+        DispatchQueue.main.async {
+            controller.show(near: point)
+        }
     }
 
     private func showSettingsForPreviewIfRequested() {
@@ -251,6 +402,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func registerCopyListHotKey(_ hotKey: HotKey) {
+        do {
+            let controller = copyListHotKeyController
+                ?? HotKeyController(identifier: HotKeyIdentifier.copyList.rawValue) { [weak self] in
+                    self?.toggleCuratedPanel()
+                }
+            try controller.register(hotKey: hotKey)
+            copyListHotKeyController = controller
+        } catch {
+            showAlert(title: "复制清单快捷键注册失败", message: error.localizedDescription)
+        }
+    }
+
+    private func setCopyListHotKey(_ hotKey: HotKey) {
+        let previous = settingsStore.copyListHotKey
+        do {
+            let controller = copyListHotKeyController
+                ?? HotKeyController(identifier: HotKeyIdentifier.copyList.rawValue) { [weak self] in
+                    self?.toggleCuratedPanel()
+                }
+            try controller.register(hotKey: hotKey)
+            copyListHotKeyController = controller
+            settingsStore.copyListHotKey = hotKey
+            settingsWindowController?.updateCopyListHotKey(hotKey)
+        } catch {
+            registerCopyListHotKey(previous)
+            settingsWindowController?.updateCopyListHotKey(previous)
+            showAlert(title: "复制清单快捷键不可用", message: error.localizedDescription)
+        }
+    }
+
+    private func registerStandaloneHotKey(_ hotKey: HotKey) {
+        do {
+            let controller = standaloneHotKeyController
+                ?? HotKeyController(identifier: HotKeyIdentifier.standalone.rawValue) { [weak self] in
+                    self?.stickOutCurrentClipboard()
+                }
+            try controller.register(hotKey: hotKey)
+            standaloneHotKeyController = controller
+        } catch {
+            showAlert(title: "单独贴出快捷键注册失败", message: error.localizedDescription)
+        }
+    }
+
+    private func setStandaloneHotKey(_ hotKey: HotKey) {
+        let previous = settingsStore.standaloneHotKey
+        do {
+            let controller = standaloneHotKeyController
+                ?? HotKeyController(identifier: HotKeyIdentifier.standalone.rawValue) { [weak self] in
+                    self?.stickOutCurrentClipboard()
+                }
+            try controller.register(hotKey: hotKey)
+            standaloneHotKeyController = controller
+            settingsStore.standaloneHotKey = hotKey
+            settingsWindowController?.updateStandaloneHotKey(hotKey)
+        } catch {
+            registerStandaloneHotKey(previous)
+            settingsWindowController?.updateStandaloneHotKey(previous)
+            showAlert(title: "单独贴出快捷键不可用", message: error.localizedDescription)
+        }
+    }
+
     private func setHotKeyRecordingSuspended(_ suspended: Bool) {
         guard hotKeysSuspendedForRecording != suspended else {
             return
@@ -260,9 +473,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if suspended {
             hotKeyController?.unregister()
             pinnedHotKeyController?.unregister()
+            copyListHotKeyController?.unregister()
+            standaloneHotKeyController?.unregister()
         } else {
             registerHotKey(settingsStore.hotKey)
             registerPinnedHotKey(settingsStore.pinnedHotKey)
+            registerCopyListHotKey(settingsStore.copyListHotKey)
+            registerStandaloneHotKey(settingsStore.standaloneHotKey)
         }
     }
 
@@ -296,8 +513,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showClipboardHistory(pinned: Bool) {
-        focusContext = FocusContextReader.current()
+    private func showClipboardHistory(pinned: Bool, preserveFocusContext: Bool = false) {
+        if !preserveFocusContext {
+            focusContext = FocusContextReader.current()
+        }
         let anchorPoint = usableAnchorPoint(focusContext?.caretPoint)
 
         panelController.show(
